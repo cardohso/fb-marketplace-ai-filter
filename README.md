@@ -4,7 +4,7 @@
 ![License](https://img.shields.io/badge/License-MIT-blue)
 ![Tech](https://img.shields.io/badge/Made%20with-TypeScript-blue)
 
-**AutoSieve** is a specialized AI-driven Chrome Extension designed to identify "Value Arbitrage" vehicle deals on Facebook Marketplace Portugal. By bridging the gap between unstructured social media listings and structured market benchmarks (Standvirtual), AutoSieve acts as an automated "Personal Car Scout."
+**AutoSieve** is a specialized AI-driven program designed to identify "Value Arbitrage" vehicle deals on Facebook Marketplace Portugal. By bridging the gap between unstructured social media listings and structured market benchmarks (Standvirtual), AutoSieve acts as an automated "Personal Car Scout."
 
 ---
 
@@ -57,7 +57,7 @@ $$S = \frac{\text{Market Average (Standvirtual)}}{\text{Listing Price}} \times \
 ---
 
 ## 👨‍💻 Author
-**[João Pedro Cardoso]**
+**João Pedro Cardoso**
 *CS Intern & Aspiring AI/LLM Engineer*
 
 ---

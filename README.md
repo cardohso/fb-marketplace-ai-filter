@@ -1,5 +1,4 @@
-# AutoSieve 🚗
-AutoSieve is a specialized Chrome Extension designed to bring order to the unstructured data of Facebook Marketplace's vehicle listings in Portugal. By leveraging Small Language Models (SLMs) and Semantic Analysis, AutoSieve filters through the "noise"—identifying dealers posing as private sellers, extracting hidden maintenance history, and verifying tax (IUC) status.
+This repository is dedicated to a Chrome Extension designed to bring order to the unstructured data of Facebook Marketplace's vehicle listings in Portugal. By leveraging Small Language Models (SLMs) and Semantic Analysis, AutoSieve filters through the "noise"—identifying dealers posing as private sellers, extracting hidden maintenance history, and verifying tax (IUC) status.
 
 🌟 The Problem
 Facebook Marketplace is a goldmine for vehicle deals, but it suffers from:

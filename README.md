@@ -1,65 +1,65 @@
-This repository is dedicated to a Chrome Extension designed to bring order to the unstructured data of Facebook Marketplace's vehicle listings in Portugal. By leveraging Small Language Models (SLMs) and Semantic Analysis, AutoSieve filters through the "noise"—identifying dealers posing as private sellers, extracting hidden maintenance history, and verifying tax (IUC) status.
+# AutoSieve 🚗
 
-🌟 The Problem
-Facebook Marketplace is a goldmine for vehicle deals, but it suffers from:
+![Status](https://img.shields.io/badge/Status-Work%20In%20Progress-orange)
+![License](https://img.shields.io/badge/License-MIT-blue)
+![Tech](https://img.shields.io/badge/Made%20with-TypeScript-blue)
 
-Misleading Metadata: Dealers tagging listings as "Individual."
+**AutoSieve** is a specialized AI-driven Chrome Extension designed to identify "Value Arbitrage" vehicle deals on Facebook Marketplace Portugal. By bridging the gap between unstructured social media listings and structured market benchmarks (Standvirtual), AutoSieve acts as an automated "Personal Car Scout."
 
-Hidden Costs: No dedicated fields for IUC (Imposto Único de Circulação) or IPO (Inspecção) status.
+---
 
-Unstructured Descriptions: Critical data (mileage, number of owners, timing belt changes) is buried in messy text.
+## 🎯 The Mission
+The objective is to find high-value deals by identifying listings where the **Price < Market Average**, specifically targeting **Private Sellers** with **Low Mileage** vehicles.
 
-🛠️ Key Features (Planned & In-Progress)
-[ ] Semantic Filter Engine: Move beyond keyword matching to understand intent (e.g., distinguishing "IUC paid" from "IUC due").
+### The "Value Arbitrage" Formula
+AutoSieve calculates a **Deal Score ($S$)** using the following logic:
 
-[ ] Dealer Detection AI: Analysis of listing patterns and descriptions to flag commercial entities.
+$$S = \frac{\text{Market Average (Standvirtual)}}{\text{Listing Price}} \times \text{Condition Multiplier}$$
 
-[ ] Automated Data Structuring: Extracting mileage, fuel type, and maintenance history into a clean UI overlay.
+---
 
-[ ] Market Value Benchmarking: Comparing live listings against the Portuguese market average.
+## 🛠️ Key Engineering Features
 
-🏗️ Technical Stack
-Frontend: React + Vite (Manifest V3)
+### 1. Semantic Data Extraction (LLM Powered)
+* **The Problem:** Marketplace listings often hide critical data (KMs, IUC status, real seller type) inside messy, unstructured text.
+* **The Solution:** Uses a lightweight LLM (GPT-4o-mini or local Llama 3) to parse descriptions into structured JSON:
+    * `is_dealer`: Detects "hidden" dealers using keywords like *IVA dedutível* or *Garantia de 18 meses*.
+    * `kms`: Extracts true mileage.
+    * `maintenance`: Identifies mentions of timing belt changes or *IPO em dia*.
 
-Language: TypeScript
+### 2. Market Benchmarking
+* Integrates a Portuguese market baseline using data derived from **Standvirtual’s "Avaliador."**
+* Computes real-time price comparisons to flag listings priced significantly below the localized market average.
 
-Intelligence: * Local: Ollama (Llama 3 / Phi-3) for privacy-conscious parsing.
+### 3. Smart Filtering & UI Injection
+* **Dealer Shield:** Automatically deprioritizes listings identified as commercial entities to focus on private deals.
+* **Visual Overlays:** Injects a "Deal Meter" (Green/Yellow/Red) directly onto the Facebook Marketplace interface for immediate decision-making.
 
-Cloud: OpenAI / Anthropic API (Experimental).
+---
 
-DOM Interaction: MutationObserver for handling dynamic content loading.
+## 🏗️ Technical Stack
+* **Frontend:** React + Vite
+* **Language:** TypeScript
+* **Manifest:** Version 3 (Service Workers + Content Scripts)
+* **Intelligence:** OpenAI API / Ollama (Local)
+* **DOM Monitoring:** `MutationObserver` for handling dynamic infinite-scroll loading.
 
-🚀 Getting Started (Dev Mode)
-Note: This project is currently in early development.
+---
 
-Clone the repository:
+## 🚀 Development Roadmap (WIP)
 
-Bash
-git clone https://github.com/yourusername/autosieve.git
-Install dependencies:
+- [x] **Phase 1: Project Architecture & Roadmap Definition**
+- [ ] **Phase 2: DOM Scraper Engine** - Extract titles and prices from Marketplace cards.
+- [ ] **Phase 3: LLM Parsing Layer** - Implement the "Private vs. Dealer" classifier.
+- [ ] **Phase 4: Benchmarking Engine** - Integrate Standvirtual price averages for top Portuguese models.
+- [ ] **Phase 5: UI Overlay** - Inject "Deal Score" badges into the browser.
 
-Bash
-npm install
-Build the extension:
+---
 
-Bash
-npm run build
-Load in Chrome:
+## 👨‍💻 Author
+**[João Pedro Cardoso]**
+*CS Intern & Aspiring AI/LLM Engineer*
 
-Open chrome://extensions/
+---
 
-Enable "Developer mode" (top right).
-
-Click "Load unpacked" and select the dist folder.
-
-📈 Roadmap
-Phase 1: Basic DOM extraction and keyword-based filtering.
-
-Phase 2: Local LLM integration for description summarization.
-
-Phase 3: Integration with Portuguese automotive data APIs.
-
-👨‍💻 Author
-[Your Name] Computer Science Intern & Aspiring AI Engineer
-
-This project is part of a personal portfolio focused on applying LLMs to solve real-world data extraction challenges.
+*This project is a work-in-progress focused on applying NLP and Semantic Analysis to solve real-world data fragmentation in the automotive market.*

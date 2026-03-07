@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \":*)",
+      "Bash(/c/Users/jphsc/AppData/Local/Programs/Python/Python313/python.exe -c \":*)"
+    ]
+  }
+}

@@ -1,8 +1,14 @@
 from playwright.sync_api import sync_playwright
 from datetime import datetime
+import pandas as pd
 
-URL = "https://www.facebook.com/marketplace/lisbon/vehicles?exact=0"
-NUM_VEHICLES = 5
+URL = "https://www.facebook.com/marketplace/lisbon/vehicles?exact=0&sortBy=creation_time_descend"
+NUM_VEHICLES = 5 # Number of vehicle listings to scrape
+
+MIN_DESC_LENGTH = 20  # Minimum characters for description to be captured
+X_POSITION_THRESHOLD = 500  # X position to identify main content area
+EXPAND_DESC_TEXT = "Ver mais"  # Text for "expand description" button
+CURRENCY_SYMBOL = "€"  # Currency symbol to identify price
 
 
 def dismiss_cookies(page):
@@ -41,14 +47,28 @@ def extract_vehicle(page):
     title_el = page.query_selector("h1 span")
     title = title_el.inner_text() if title_el else "Title not found"
 
+    # Price/Value
+    value = page.evaluate("""
+        () => {
+            const elements = document.querySelectorAll('*');
+            for (const el of elements) {
+                const text = el.innerText;
+                if (text && text.includes('""" + CURRENCY_SYMBOL + """') && text.length < 50) {
+                    return text.trim();
+                }
+            }
+            return '';
+        }
+    """)
+
     # Expand description
     page.evaluate("""
         () => {
             const els = document.querySelectorAll('span');
             for (const el of els) {
-                if (el.children.length === 0 && el.textContent.trim() === 'Ver mais') {
+                if (el.children.length === 0 && el.textContent.trim() === '""" + EXPAND_DESC_TEXT + """') {
                     const rect = el.getBoundingClientRect();
-                    if (rect.x > 500) {
+                    if (rect.x > """ + str(X_POSITION_THRESHOLD) + """) {
                         el.parentElement.click();
                         return true;
                     }
@@ -65,7 +85,7 @@ def extract_vehicle(page):
             const spans = document.querySelectorAll('span');
             for (const span of spans) {
                 const rect = span.getBoundingClientRect();
-                if (rect.x > 500 && span.innerText.length > 100 && !span.innerText.includes('Ver mais')) {
+                if (rect.x > """ + str(X_POSITION_THRESHOLD) + """ && span.innerText.length >= """ + str(MIN_DESC_LENGTH) + """ && !span.innerText.includes('""" + EXPAND_DESC_TEXT + """')) {
                     return span.innerText;
                 }
             }
@@ -73,7 +93,7 @@ def extract_vehicle(page):
         }
     """)
 
-    return {"title": title, "description": desc or "No description found"}
+    return {"title": title, "description": desc or "No description found", "value": value or "Price not found"}
 
 
 with sync_playwright() as p:
@@ -121,23 +141,14 @@ with sync_playwright() as p:
         print(f"  Title: {vehicle['title']}")
         print()
 
-    # Save to file
+    # Save to CSV
+    df = pd.DataFrame(vehicles, columns=["title", "value", "description", "url"])
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"vehicles_{timestamp}.txt"
+    filename = f"vehicles_{timestamp}.csv"
+    df.to_csv(filename, index=False, encoding="utf-8")
 
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(f"Facebook Marketplace - Vehicles near Lisbon\n")
-        f.write(f"Scraped: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Total: {len(vehicles)} vehicles\n")
-        f.write("=" * 60 + "\n\n")
 
-        for i, v in enumerate(vehicles, 1):
-            f.write(f"Vehicle #{i}\n")
-            f.write("-" * 40 + "\n")
-            f.write(f"Title: {v['title']}\n")
-            f.write(f"URL: {v['url']}\n")
-            f.write(f"\nDescription:\n{v['description']}\n")
-            f.write("\n" + "=" * 60 + "\n\n")
 
-    print(f"Saved {len(vehicles)} vehicles to {filename}")
+    print(df.to_string(index=False))
+    print(f"\nSaved {len(vehicles)} vehicles to {filename}")
     browser.close()

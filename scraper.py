@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 
 URL = "https://www.facebook.com/marketplace/lisbon/vehicles?exact=0&sortBy=creation_time_descend"
-NUM_VEHICLES = 5 # Number of vehicle listings to scrape
+NUM_VEHICLES = 1 # Number of vehicle listings to scrape
 
 MIN_DESC_LENGTH = 20  # Minimum characters for description to be captured
 X_POSITION_THRESHOLD = 500  # X position to identify main content area
@@ -61,17 +61,23 @@ def extract_vehicle(page):
         }
     """)
 
-    # Expand description
+    # Expand "Ver mais" if present, then extract description from "Detalhes" section
     page.evaluate("""
         () => {
-            const els = document.querySelectorAll('span');
-            for (const el of els) {
-                if (el.children.length === 0 && el.textContent.trim() === '""" + EXPAND_DESC_TEXT + """') {
-                    const rect = el.getBoundingClientRect();
-                    if (rect.x > """ + str(X_POSITION_THRESHOLD) + """) {
-                        el.parentElement.click();
-                        return true;
-                    }
+            const allSpans = document.querySelectorAll('span');
+            let heading = null;
+            for (const span of allSpans) {
+                const t = span.textContent.trim();
+                if (t === 'Detalhes' || t === 'Details') { heading = span; break; }
+            }
+            if (!heading) return false;
+            let container = heading;
+            for (let i = 0; i < 7; i++) { if (container.parentElement) container = container.parentElement; }
+            for (const el of container.querySelectorAll('span')) {
+                const t = el.textContent.trim();
+                if (el.children.length === 0 && (t === 'Ver mais' || t === 'See more')) {
+                    el.parentElement.click();
+                    return true;
                 }
             }
             return false;
@@ -79,17 +85,26 @@ def extract_vehicle(page):
     """)
     page.wait_for_timeout(2000)
 
-    # Read expanded description
+    # Read description from "Detalhes" container (7 levels up)
     desc = page.evaluate("""
         () => {
-            const spans = document.querySelectorAll('span');
-            for (const span of spans) {
-                const rect = span.getBoundingClientRect();
-                if (rect.x > """ + str(X_POSITION_THRESHOLD) + """ && span.innerText.length >= """ + str(MIN_DESC_LENGTH) + """ && !span.innerText.includes('""" + EXPAND_DESC_TEXT + """')) {
-                    return span.innerText;
-                }
+            const allSpans = document.querySelectorAll('span');
+            let heading = null;
+            for (const span of allSpans) {
+                const t = span.textContent.trim();
+                if (t === 'Detalhes' || t === 'Details') { heading = span; break; }
             }
-            return '';
+            if (!heading) return '';
+            let container = heading;
+            for (let i = 0; i < 7; i++) { if (container.parentElement) container = container.parentElement; }
+
+            // Get the full text, then strip the "Detalhes" heading and known labels
+            let text = container.innerText || '';
+            // Remove the first line ("Detalhes")
+            const lines = text.split('\\n').filter(l => l.trim().length > 0);
+            const skip = ['Detalhes', 'Details', 'Estado', 'Condition', 'Ver mais', 'See more', 'Ver menos', 'See less'];
+            const cleaned = lines.filter(l => !skip.includes(l.trim()));
+            return cleaned.join('\\n').trim();
         }
     """)
 

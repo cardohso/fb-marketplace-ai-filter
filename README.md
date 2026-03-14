@@ -49,7 +49,7 @@ $$S = \frac{\text{Market Average (Standvirtual)}}{\text{Listing Price}} \times \
 ## 🚀 Development Roadmap (WIP)
 
 - [x] **Phase 1: Project Architecture & Roadmap Definition**
-- [ ] **Phase 2: DOM Scraper Engine** - Extract titles and prices from Marketplace cards.
+- [x] **Phase 2: DOM Scraper Engine** - Extract titles and prices from Marketplace cards.
 - [ ] **Phase 3: LLM Parsing Layer** - Implement the "Private vs. Dealer" classifier.
 - [ ] **Phase 4: Benchmarking Engine** - Integrate Standvirtual price averages for top Portuguese models.
 - [ ] **Phase 5: UI Overlay** - Inject "Deal Score" badges into the browser.

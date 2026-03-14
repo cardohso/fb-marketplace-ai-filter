@@ -1,14 +1,12 @@
 from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
 from datetime import datetime
 import pandas as pd
 
 URL = "https://www.facebook.com/marketplace/lisbon/vehicles?exact=0&sortBy=creation_time_descend"
 NUM_VEHICLES = 1 # Number of vehicle listings to scrape
 
-MIN_DESC_LENGTH = 20  # Minimum characters for description to be captured
-X_POSITION_THRESHOLD = 500  # X position to identify main content area
-EXPAND_DESC_TEXT = "Ver mais"  # Text for "expand description" button
-CURRENCY_SYMBOL = "€"  # Currency symbol to identify price
+CURRENCY_SYMBOL = "€"
 
 
 def dismiss_cookies(page):
@@ -42,73 +40,73 @@ def dismiss_overlay(page):
         pass
 
 
-def extract_vehicle(page):
-    # Title
-    title_el = page.query_selector("h1 span")
-    title = title_el.inner_text() if title_el else "Title not found"
-
-    # Price/Value
-    value = page.evaluate("""
-        () => {
-            const elements = document.querySelectorAll('*');
-            for (const el of elements) {
-                const text = el.innerText;
-                if (text && text.includes('""" + CURRENCY_SYMBOL + """') && text.length < 50) {
-                    return text.trim();
-                }
-            }
-            return '';
-        }
-    """)
-
-    # Expand "Ver mais" if present, then extract description from "Detalhes" section
+def expand_see_more(page):
+    """Click 'Ver mais' only inside the seller description section."""
     page.evaluate("""
         () => {
             const allSpans = document.querySelectorAll('span');
-            let heading = null;
+            let inDescSection = false;
             for (const span of allSpans) {
                 const t = span.textContent.trim();
-                if (t === 'Detalhes' || t === 'Details') { heading = span; break; }
-            }
-            if (!heading) return false;
-            let container = heading;
-            for (let i = 0; i < 7; i++) { if (container.parentElement) container = container.parentElement; }
-            for (const el of container.querySelectorAll('span')) {
-                const t = el.textContent.trim();
-                if (el.children.length === 0 && (t === 'Ver mais' || t === 'See more')) {
-                    el.parentElement.click();
-                    return true;
+                if (t === 'Descrição do vendedor') {
+                    inDescSection = true;
+                    continue;
+                }
+                if (inDescSection && span.children.length === 0
+                    && (t === 'Ver mais' || t === 'See more')) {
+                    span.parentElement.click();
+                    return;
                 }
             }
-            return false;
         }
     """)
     page.wait_for_timeout(2000)
 
-    # Read description from "Detalhes" container (7 levels up)
-    desc = page.evaluate("""
-        () => {
-            const allSpans = document.querySelectorAll('span');
-            let heading = null;
-            for (const span of allSpans) {
-                const t = span.textContent.trim();
-                if (t === 'Detalhes' || t === 'Details') { heading = span; break; }
-            }
-            if (!heading) return '';
-            let container = heading;
-            for (let i = 0; i < 7; i++) { if (container.parentElement) container = container.parentElement; }
 
-            // Get the full text, then strip the "Detalhes" heading and known labels
-            let text = container.innerText || '';
-            // Remove the first line ("Detalhes")
-            const lines = text.split('\\n').filter(l => l.trim().length > 0);
-            const skip = ['Detalhes', 'Details', 'Estado', 'Condition', 'Ver mais', 'See more', 'Ver menos', 'See less'];
-            const cleaned = lines.filter(l => !skip.includes(l.trim()));
-            return cleaned.join('\\n').trim();
-        }
-    """)
+def extract_vehicle(page):
+    # Wait for listing content to render
+    page.wait_for_selector("h1 span", timeout=10000)
+    page.wait_for_timeout(2000)
+    expand_see_more(page)
+    html = page.content()
+    soup = BeautifulSoup(html, "html.parser")
 
-    return {"title": title, "description": desc or "No description found", "value": value or "Price not found"}
+    # Title
+    h1 = soup.find("h1")
+    title = h1.get_text(strip=True) if h1 else "Title not found"
+
+    # Price — first short text containing €
+    value = ""
+    for el in soup.find_all("span"):
+        text = el.get_text(strip=True)
+        if CURRENCY_SYMBOL in text and len(text) < 50:
+            value = text
+            break
+
+    # Description — find "Descrição do vendedor" heading, then grab the next
+    # span that contains the actual description text
+    desc = ""
+    all_spans = soup.find_all("span")
+    for i, span in enumerate(all_spans):
+        if span.get_text(strip=True) == "Descrição do vendedor":
+            for j in range(i + 1, min(i + 5, len(all_spans))):
+                text = all_spans[j].get_text(strip=True)
+                skip = {"Ver mais", "See more", "Ver menos", "See less",
+                        "Descrição do vendedor"}
+                if text and text not in skip and len(text) > 10:
+                    # Strip trailing "Ver mais"/"Ver menos" embedded in the text
+                    for suffix in ["Ver mais", "Ver menos", "See more", "See less"]:
+                        if text.endswith(suffix):
+                            text = text[:-len(suffix)].strip()
+                    desc = text
+                    break
+            break
+
+    return {
+        "title": title,
+        "description": desc or "No description found",
+        "value": value or "Price not found",
+    }
 
 
 with sync_playwright() as p:
@@ -154,6 +152,7 @@ with sync_playwright() as p:
         vehicles.append(vehicle)
 
         print(f"  Title: {vehicle['title']}")
+        print(f"  Description: {vehicle['description'][:100]}...")
         print()
 
     # Save to CSV
@@ -161,8 +160,6 @@ with sync_playwright() as p:
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"vehicles_{timestamp}.csv"
     df.to_csv(filename, index=False, encoding="utf-8")
-
-
 
     print(df.to_string(index=False))
     print(f"\nSaved {len(vehicles)} vehicles to {filename}")

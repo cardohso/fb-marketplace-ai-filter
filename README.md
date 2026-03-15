@@ -26,20 +26,22 @@ $$S = \frac{\text{Market Average (Standvirtual)}}{\text{Listing Price}} \times \
     * **Title** from the `<h1>` tag.
     * **Price** by matching the `€` currency symbol.
     * **Seller description** from the "Descrição do vendedor" section, automatically expanding truncated text via "Ver mais".
-    * **Listing images** — product photo URLs for vision-based analysis.
+    * **Listing images** — product photo URLs for OCR-based mileage extraction.
 * Handles cookie consent banners and login overlays automatically.
 * Outputs a timestamped CSV (`vehicles_YYYY-MM-DD_HH-MM-SS.csv`).
 
 ### 2. LLM Parsing Layer (`llm_parser.py`)
 * Enriches scraped CSVs with structured data extracted by a local **Llama 3.1** model via **Ollama**.
+* **Non-vehicle filter:** Automatically detects and filters out listings that aren't actual vehicles (parts, accessories, tyres, subwoofers, etc.).
 * Each listing description is analysed and parsed into structured JSON:
+    * `is_vehicle`: Flags whether the listing is an actual vehicle or just parts/accessories.
     * `is_dealer`: Detects "hidden" dealers using keywords like *IVA dedutível*, *stand*, *garantia*.
     * `kms`: Extracts mileage as a plain integer.
     * `maintenance`: Identifies timing belt replacement and *IPO* (vehicle inspection) status.
     * `iuc_status`: IUC tax status (`ok`, `pending`, `unknown`).
     * `condition`: Flags accident history and paint issues.
     * `notes`: One-sentence summary of standout aspects.
-* **Vision fallback:** When mileage is not found in the description text, listing images are sent to **LLaVA 13B** (vision model) to read the odometer/dashboard display. Includes confidence checks and sanity validation (rejects readings outside 100–999,999 km).
+* **OCR fallback:** When mileage is not found in the description text, listing images are processed with **EasyOCR** to read the odometer/dashboard display. Searches for numbers followed by "km", keeps the largest reading (total odometer vs trip), and rejects unrealistic values (outside 100–999,999 km).
 * Outputs an enriched CSV (`vehicles_..._enriched.csv`) with `llm_` prefixed columns.
 
 ### 3. Market Benchmarking (Planned)
@@ -55,7 +57,8 @@ $$S = \frac{\text{Market Average (Standvirtual)}}{\text{Listing Price}} \times \
 ## 🏗️ Technical Stack
 * **Language:** Python
 * **Scraping:** Playwright + BeautifulSoup
-* **LLM:** Ollama (Llama 3.1 for text, LLaVA 13B for vision)
+* **LLM:** Ollama (Llama 3.1, local)
+* **OCR:** EasyOCR (for odometer reading from images)
 * **Data:** Pandas
 
 ---
@@ -69,14 +72,13 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
-pip install playwright pandas beautifulsoup4 requests
+pip install playwright pandas beautifulsoup4 requests easyocr Pillow
 
 # Install Playwright browsers
 playwright install chromium
 
-# Install and start Ollama with required models
+# Install and start Ollama with Llama 3.1
 ollama pull llama3.1
-ollama pull llava:13b
 ollama serve
 ```
 

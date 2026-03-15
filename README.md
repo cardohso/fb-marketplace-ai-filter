@@ -26,6 +26,7 @@ $$S = \frac{\text{Market Average (Standvirtual)}}{\text{Listing Price}} \times \
     * **Title** from the `<h1>` tag.
     * **Price** by matching the `€` currency symbol.
     * **Seller description** from the "Descrição do vendedor" section, automatically expanding truncated text via "Ver mais".
+    * **Listing images** — product photo URLs for vision-based analysis.
 * Handles cookie consent banners and login overlays automatically.
 * Outputs a timestamped CSV (`vehicles_YYYY-MM-DD_HH-MM-SS.csv`).
 
@@ -38,6 +39,7 @@ $$S = \frac{\text{Market Average (Standvirtual)}}{\text{Listing Price}} \times \
     * `iuc_status`: IUC tax status (`ok`, `pending`, `unknown`).
     * `condition`: Flags accident history and paint issues.
     * `notes`: One-sentence summary of standout aspects.
+* **Vision fallback:** When mileage is not found in the description text, listing images are sent to **LLaVA 13B** (vision model) to read the odometer/dashboard display. Includes confidence checks and sanity validation (rejects readings outside 100–999,999 km).
 * Outputs an enriched CSV (`vehicles_..._enriched.csv`) with `llm_` prefixed columns.
 
 ### 3. Market Benchmarking (Planned)
@@ -53,7 +55,7 @@ $$S = \frac{\text{Market Average (Standvirtual)}}{\text{Listing Price}} \times \
 ## 🏗️ Technical Stack
 * **Language:** Python
 * **Scraping:** Playwright + BeautifulSoup
-* **LLM:** Ollama (Llama 3.1, local)
+* **LLM:** Ollama (Llama 3.1 for text, LLaVA 13B for vision)
 * **Data:** Pandas
 
 ---
@@ -72,8 +74,9 @@ pip install playwright pandas beautifulsoup4 requests
 # Install Playwright browsers
 playwright install chromium
 
-# Install and start Ollama with Llama 3.1
+# Install and start Ollama with required models
 ollama pull llama3.1
+ollama pull llava:13b
 ollama serve
 ```
 

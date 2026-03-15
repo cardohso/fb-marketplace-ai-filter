@@ -102,10 +102,21 @@ def extract_vehicle(page):
                     break
             break
 
+    # Images — collect listing product photos (alt starts with "Foto de produto")
+    image_urls = []
+    seen = set()
+    for img in soup.find_all("img"):
+        alt = img.get("alt", "")
+        src = img.get("src", "")
+        if src and "Foto de produto" in alt and src not in seen:
+            seen.add(src)
+            image_urls.append(src)
+
     return {
         "title": title,
         "description": desc or "No description found",
         "value": value or "Price not found",
+        "image_urls": "|".join(image_urls),
     }
 
 
@@ -156,7 +167,7 @@ with sync_playwright() as p:
         print()
 
     # Save to CSV
-    df = pd.DataFrame(vehicles, columns=["title", "value", "description", "url"])
+    df = pd.DataFrame(vehicles, columns=["title", "value", "description", "image_urls", "url"])
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"vehicles_{timestamp}.csv"
     df.to_csv(filename, index=False, encoding="utf-8")

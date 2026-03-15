@@ -8,14 +8,16 @@ LLM Backend: Ollama (local) → run `ollama serve` with llama3.1 pulled
 
 import json
 import time
+import base64
 import logging
 import pandas as pd
 import requests
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-OLLAMA_MODEL = "llama3.1"
-OLLAMA_URL   = "http://localhost:11434/api/chat"
+OLLAMA_MODEL        = "llama3.1"
+OLLAMA_VISION_MODEL = "llava:13b"
+OLLAMA_URL          = "http://localhost:11434/api/chat"
 
 RETRY_ATTEMPTS = 3
 RETRY_DELAY    = 2   # seconds between retries
@@ -80,6 +82,73 @@ def call_llm(messages: list[dict]) -> str:
     raise RuntimeError(f"Ollama failed after {RETRY_ATTEMPTS} attempts. Last error: {last_error}")
 
 
+# ── Vision KM Extraction ─────────────────────────────────────────────────────
+
+VISION_PROMPT = """Look at this vehicle listing image carefully.
+Does it show a dashboard, odometer, or instrument cluster?
+If yes, read the exact number displayed before "km" or "KM" on the display (e.g. "9328 km").
+Do NOT guess or estimate — only report the exact digits you can clearly read.
+If there are multiple km readings, return the largest one (total odometer, not trip meter).
+If you are NOT 100% confident in the reading, respond with: unknown
+If this image does not show a dashboard or odometer, respond with: null
+Respond with ONLY the integer, "unknown", or "null" — no other text."""
+
+
+def download_image_as_base64(url: str) -> str | None:
+    """Download an image URL and return its base64 encoding."""
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        return base64.b64encode(resp.content).decode("utf-8")
+    except Exception as e:
+        log.warning(f"Failed to download image: {e}")
+        return None
+
+
+def extract_kms_from_images(image_urls: list[str]) -> int | None:
+    """Try to read KMs from listing images using a vision model."""
+    for url in image_urls:
+        img_b64 = download_image_as_base64(url)
+        if not img_b64:
+            continue
+        try:
+            payload = {
+                "model": OLLAMA_VISION_MODEL,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": VISION_PROMPT,
+                        "images": [img_b64],
+                    }
+                ],
+                "stream": False,
+                "options": {"temperature": 0.0},
+            }
+            resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
+            resp.raise_for_status()
+            raw = resp.json()["message"]["content"].strip().lower()
+            if raw in ("null", "unknown"):
+                if raw == "unknown":
+                    log.info("Vision model not confident in reading")
+                continue
+            # Extract digits from response
+            digits = "".join(c for c in raw if c.isdigit())
+            if digits:
+                kms = int(digits)
+                # Sanity: most vehicles have < 999,999 km
+                if kms > 999_999:
+                    log.warning(f"Vision reading {kms} km is unrealistic, skipping")
+                    continue
+                if kms < 100:
+                    log.warning(f"Vision reading {kms} km is too low, skipping")
+                    continue
+                log.info(f"Vision extracted KMs: {kms}")
+                return kms
+        except Exception as e:
+            log.warning(f"Vision KM extraction failed: {e}")
+    return None
+
+
 # ── JSON Parsing ─────────────────────────────────────────────────────────────
 
 def parse_llm_response(raw: str) -> dict:
@@ -104,18 +173,29 @@ EMPTY_RESULT = {
 
 # ── Per-vehicle Analysis ──────────────────────────────────────────────────────
 
-def analyse_vehicle(title: str, description: str, price: str) -> dict:
-    """Run LLM analysis on a single vehicle listing."""
+def analyse_vehicle(title: str, description: str, price: str,
+                    image_urls: list[str] | None = None) -> dict:
+    """Run LLM analysis on a single vehicle listing.
+    Falls back to vision model to extract KMs from images if not found in text."""
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user",   "content": build_user_message(title, description, price)},
     ]
     try:
         raw = call_llm(messages)
-        return parse_llm_response(raw)
+        result = parse_llm_response(raw)
     except Exception as e:
         log.error(f"Failed to analyse '{title}': {e}")
         return EMPTY_RESULT
+
+    # Vision fallback: if KMs not found in text, try reading from images
+    if result.get("kms") is None and image_urls:
+        log.info(f"KMs not in text, trying vision on {len(image_urls)} images...")
+        kms = extract_kms_from_images(image_urls)
+        if kms is not None:
+            result["kms"] = kms
+
+    return result
 
 
 # ── DataFrame Enrichment ──────────────────────────────────────────────────────
@@ -157,10 +237,14 @@ def enrich_csv(input_path: str, output_path: str | None = None) -> pd.DataFrame:
     enriched_rows = []
     for idx, row in df.iterrows():
         log.info(f"[{idx + 1}/{len(df)}] Analysing: {row['title'][:60]}...")
+        # Parse image URLs from pipe-separated string
+        raw_images = str(row.get("image_urls", ""))
+        image_urls = [u for u in raw_images.split("|") if u.startswith("http")]
         result = analyse_vehicle(
             title=str(row.get("title", "")),
             description=str(row.get("description", "")),
             price=str(row.get("value", "")),
+            image_urls=image_urls or None,
         )
         enriched_rows.append(flatten_result(result))
 

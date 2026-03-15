@@ -2,11 +2,7 @@ from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from datetime import datetime
 import pandas as pd
-
-URL = "https://www.facebook.com/marketplace/lisbon/vehicles?exact=0&sortBy=creation_time_descend"
-NUM_VEHICLES = 1 # Number of vehicle listings to scrape
-
-CURRENCY_SYMBOL = "€"
+from config import MARKETPLACE_URL, NUM_VEHICLES, CURRENCY_SYMBOL, HEADLESS
 
 
 def dismiss_cookies(page):
@@ -121,14 +117,14 @@ def extract_vehicle(page):
 
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
+    browser = p.chromium.launch(headless=HEADLESS)
     context = browser.new_context(
         geolocation={"latitude": 38.7223, "longitude": -9.1393},
         permissions=["geolocation"],
         locale="pt-PT",
     )
     page = context.new_page()
-    page.goto(URL, wait_until="domcontentloaded")
+    page.goto(MARKETPLACE_URL, wait_until="domcontentloaded")
 
     dismiss_cookies(page)
     dismiss_overlay(page)

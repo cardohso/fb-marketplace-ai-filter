@@ -15,17 +15,10 @@ import pandas as pd
 import requests
 import easyocr
 from PIL import Image
-
-# ── Configuration ────────────────────────────────────────────────────────────
-
-OLLAMA_MODEL = "llama3.1"
-OLLAMA_URL   = "http://localhost:11434/api/chat"
+from config import OLLAMA_MODEL, OLLAMA_URL, RETRY_ATTEMPTS, RETRY_DELAY, OCR_GPU
 
 # EasyOCR reader (lazy-loaded on first use)
 _ocr_reader = None
-
-RETRY_ATTEMPTS = 3
-RETRY_DELAY    = 2   # seconds between retries
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger("autosieve.llm_parser")
@@ -102,7 +95,7 @@ def get_ocr_reader() -> easyocr.Reader:
     global _ocr_reader
     if _ocr_reader is None:
         log.info("Loading EasyOCR reader...")
-        _ocr_reader = easyocr.Reader(["en", "pt"], gpu=False)
+        _ocr_reader = easyocr.Reader(["en", "pt"], gpu=OCR_GPU)
     return _ocr_reader
 
 

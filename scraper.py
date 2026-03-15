@@ -37,18 +37,19 @@ def dismiss_overlay(page):
 
 
 def expand_see_more(page):
-    """Click 'Ver mais' only inside the seller description section."""
+    """Click 'Ver mais' / 'See more' near the listing description area."""
     page.evaluate("""
         () => {
             const allSpans = document.querySelectorAll('span');
-            let inDescSection = false;
+            let inDetailArea = false;
             for (const span of allSpans) {
                 const t = span.textContent.trim();
-                if (t === 'Descrição do vendedor') {
-                    inDescSection = true;
+                // Start looking after "Detalhes" or "Descrição do vendedor"
+                if (t === 'Detalhes' || t === 'Descrição do vendedor') {
+                    inDetailArea = true;
                     continue;
                 }
-                if (inDescSection && span.children.length === 0
+                if (inDetailArea && span.children.length === 0
                     && (t === 'Ver mais' || t === 'See more')) {
                     span.parentElement.click();
                     return;
@@ -79,24 +80,57 @@ def extract_vehicle(page):
             value = text
             break
 
-    # Description — find "Descrição do vendedor" heading, then grab the next
-    # span that contains the actual description text
+    # Description — try two strategies:
+    # 1. Find "Descrição do vendedor" heading and grab the text after it
+    # 2. Fallback: find the longest span near the listing details area
     desc = ""
     all_spans = soup.find_all("span")
+
+    # Strategy 1: explicit heading
     for i, span in enumerate(all_spans):
         if span.get_text(strip=True) == "Descrição do vendedor":
-            for j in range(i + 1, min(i + 5, len(all_spans))):
-                text = all_spans[j].get_text(strip=True)
-                skip = {"Ver mais", "See more", "Ver menos", "See less",
-                        "Descrição do vendedor"}
-                if text and text not in skip and len(text) > 10:
-                    # Strip trailing "Ver mais"/"Ver menos" embedded in the text
-                    for suffix in ["Ver mais", "Ver menos", "See more", "See less"]:
-                        if text.endswith(suffix):
-                            text = text[:-len(suffix)].strip()
-                    desc = text
-                    break
+            parent = span.find_parent("div")
+            if parent:
+                desc = parent.get_text(separator=" ", strip=True)
+                # Remove the heading itself and UI buttons
+                for remove in ["Descrição do vendedor", "Ver mais", "Ver menos",
+                               "See more", "See less"]:
+                    desc = desc.replace(remove, "").strip()
             break
+
+    # Strategy 2: find description text after "Detalhes" section
+    if not desc:
+        in_details = False
+        skip_keywords = {"cookie", "facebook", "publicidade", "anúncio",
+                         "condomínio", "casas expansíveis", "centro de contas",
+                         "publicado", "localização", "enviar mensagem",
+                         "saiba mais", "seleções de hoje"}
+        best = ""
+        for span in all_spans:
+            text = span.get_text(strip=True)
+            if text == "Detalhes":
+                in_details = True
+                continue
+            if not in_details:
+                continue
+            if len(text) > len(best) and len(text) < 3000:
+                lower = text.lower()
+                if any(k in lower for k in skip_keywords):
+                    continue
+                # Skip short UI elements and condition labels
+                if text in {"Condição", "Estado", "Ver mais", "Ver menos",
+                            "See more", "See less"}:
+                    continue
+                # Skip spans that start with condition text
+                if text.startswith("Usado") or text.startswith("Novo"):
+                    continue
+                # Strip trailing UI text
+                for suffix in ["Ver mais", "Ver menos", "See more", "See less"]:
+                    if text.endswith(suffix):
+                        text = text[:-len(suffix)].strip()
+                if len(text) > 30:
+                    best = text
+        desc = best
 
     # Images — collect listing product photos (alt starts with "Foto de produto")
     image_urls = []

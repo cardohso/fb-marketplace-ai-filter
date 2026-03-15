@@ -208,17 +208,21 @@ def analyse_vehicle(title: str, description: str, price: str,
 # ── DataFrame Enrichment ──────────────────────────────────────────────────────
 
 def flatten_result(result: dict) -> dict:
-    """Flatten nested analysis dict into CSV-friendly columns."""
+    """Flatten nested analysis dict into CSV-friendly columns.
+    Any missing/null field is represented as 'unknown'."""
+    def val(v):
+        return "unknown" if v is None else v
+
     return {
-        "llm_is_vehicle":         result.get("is_vehicle"),
-        "llm_is_dealer":          result.get("is_dealer"),
-        "llm_kms":                result.get("kms"),
-        "llm_timing_belt_done":   result.get("maintenance", {}).get("timing_belt_done"),
-        "llm_ipo_ok":             result.get("maintenance", {}).get("ipo_ok"),
-        "llm_iuc_status":         result.get("iuc_status", "unknown"),
-        "llm_accident_history":   result.get("condition", {}).get("accident_history"),
-        "llm_paint_issues":       result.get("condition", {}).get("paint_issues"),
-        "llm_notes":              result.get("notes", ""),
+        "llm_is_vehicle":         val(result.get("is_vehicle")),
+        "llm_is_dealer":          val(result.get("is_dealer")),
+        "llm_kms":                val(result.get("kms")),
+        "llm_timing_belt_done":   val(result.get("maintenance", {}).get("timing_belt_done")),
+        "llm_ipo_ok":             val(result.get("maintenance", {}).get("ipo_ok")),
+        "llm_iuc_status":         val(result.get("iuc_status")),
+        "llm_accident_history":   val(result.get("condition", {}).get("accident_history")),
+        "llm_paint_issues":       val(result.get("condition", {}).get("paint_issues")),
+        "llm_notes":              val(result.get("notes")),
     }
 
 
@@ -263,7 +267,7 @@ def enrich_csv(input_path: str, output_path: str | None = None) -> pd.DataFrame:
         output_path = f"{base}_enriched.csv"
 
     # Filter out non-vehicle listings
-    non_vehicles = enriched_df["llm_is_vehicle"] == False
+    non_vehicles = enriched_df["llm_is_vehicle"] == False  # noqa: E712
     if non_vehicles.any():
         log.info(f"Filtered out {non_vehicles.sum()} non-vehicle listing(s)")
     enriched_df = enriched_df[~non_vehicles].reset_index(drop=True)

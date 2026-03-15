@@ -33,6 +33,11 @@ JSON schema:
 {
   "is_vehicle": boolean,         // true if the listing is selling an actual vehicle (car, motorcycle, van, truck). false ONLY if it is clearly selling parts, accessories, tyres, subwoofers, headlights, tools, etc. When in doubt, default to true.
   "is_dealer": boolean,          // true if seller appears to be a dealer (keywords: IVA dedutível, garantia, stand, empresa, NIPC)
+  "brand": string | null,        // vehicle manufacturer (e.g. "Renault", "BMW", "Mercedes-Benz"). Extract from title or description.
+  "model": string | null,        // vehicle model (e.g. "Clio", "320d", "A-Class"). Extract from title or description.
+  "year": integer | null,        // manufacturing year (e.g. 2018). Extract from title or description.
+  "fuel_type": string | null,    // one of: "Gasolina", "Gasóleo", "Elétrico", "Híbrido (Gasolina)", "Híbrido (Gasóleo)", "GPL", or null
+  "transmission": string | null, // one of: "Manual", "Automática", or null
   "kms": integer | null,         // mileage as a plain integer (e.g. 87000), null if not mentioned
   "maintenance": {
     "timing_belt_done": boolean | null,   // true if timing belt replacement is mentioned
@@ -163,6 +168,11 @@ def parse_llm_response(raw: str) -> dict:
 EMPTY_RESULT = {
     "is_vehicle": None,
     "is_dealer": None,
+    "brand": None,
+    "model": None,
+    "year": None,
+    "fuel_type": None,
+    "transmission": None,
     "kms": None,
     "maintenance": {"timing_belt_done": None, "ipo_ok": None},
     "iuc_status": "unknown",
@@ -209,6 +219,11 @@ def flatten_result(result: dict) -> dict:
     return {
         "llm_is_vehicle":         val(result.get("is_vehicle")),
         "llm_is_dealer":          val(result.get("is_dealer")),
+        "llm_brand":              val(result.get("brand")),
+        "llm_model":              val(result.get("model")),
+        "llm_year":               val(result.get("year")),
+        "llm_fuel_type":          val(result.get("fuel_type")),
+        "llm_transmission":       val(result.get("transmission")),
         "llm_kms":                val(result.get("kms")),
         "llm_timing_belt_done":   val(result.get("maintenance", {}).get("timing_belt_done")),
         "llm_ipo_ok":             val(result.get("maintenance", {}).get("ipo_ok")),

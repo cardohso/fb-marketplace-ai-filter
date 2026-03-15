@@ -19,100 +19,153 @@ log = logging.getLogger("autosieve.benchmarker")
 AVALIADOR_URL = "https://www.standvirtual.com/avaliacao-do-carro"
 
 
-def select_dropdown_option(page, label: str, value: str) -> bool:
-    """Select an option from a Standvirtual dropdown by its label text.
-    Returns True if the option was found and selected."""
-    try:
-        # Find the select element by its label
-        select = page.locator(f"select").filter(has=page.locator(f"option")).all()
-        for sel in select:
-            # Check if this select's parent/label contains the label text
-            parent = sel.locator("xpath=ancestor::div[1]")
-            parent_text = parent.inner_text()
-            if label.lower() in parent_text.lower():
-                # Try to find matching option
-                options = sel.locator("option").all()
-                for opt in options:
-                    opt_text = opt.inner_text().strip()
-                    if opt_text.lower() == value.lower():
-                        sel.select_option(label=opt_text)
-                        page.wait_for_timeout(500)
-                        return True
-                # Fuzzy match: option contains value or value contains option
-                for opt in options:
-                    opt_text = opt.inner_text().strip()
-                    if (value.lower() in opt_text.lower() or
-                            opt_text.lower() in value.lower()):
-                        sel.select_option(label=opt_text)
-                        page.wait_for_timeout(500)
-                        return True
-        return False
-    except Exception as e:
-        log.warning(f"Failed to select {label}={value}: {e}")
-        return False
+# Map LLM fuel names to Standvirtual fuel names
+FUEL_MAP = {
+    "gasóleo": "Diesel",
+    "gasolina": "Gasolina",
+    "elétrico": "Elétrico",
+    "híbrido (gasolina)": "Gasolina/Elétrico",
+    "híbrido (gasóleo)": "Diesel/Elétrico",
+    "gpl": "GPL",
+}
 
 
-def find_and_select(page, dropdown_label: str, value: str) -> bool:
-    """Find a dropdown by nearby label text and select the best matching option."""
+def fill_dropdown(page, label_text: str, value: str, timeout: int = 5000) -> bool:
+    """Fill a Standvirtual custom dropdown by label text.
+    These are searchable input dropdowns — click input, type value, select option.
+    Waits for the input to be enabled before interacting."""
     if not value or value == "unknown":
         return False
     try:
-        # Strategy: find all <select> elements, check their preceding label
-        selects = page.query_selector_all("select")
-        for sel in selects:
-            # Get the label text from the parent container
-            parent = sel.evaluate_handle(
-                "el => el.closest('div[class]') || el.parentElement"
-            )
-            label_text = parent.evaluate("el => el.textContent || ''")
-            if dropdown_label.lower() not in label_text.lower():
-                continue
-
-            # Get all options
-            options = sel.query_selector_all("option")
-            option_texts = []
-            for opt in options:
-                text = opt.inner_text().strip()
-                if text and text != "Selecionar":
-                    option_texts.append(text)
-
-            # Exact match
-            for text in option_texts:
-                if text.lower() == value.lower():
-                    sel.select_option(label=text)
-                    page.wait_for_timeout(500)
-                    return True
-
-            # Fuzzy: value contained in option or option contained in value
-            for text in option_texts:
-                if (value.lower() in text.lower() or
-                        text.lower() in value.lower()):
-                    sel.select_option(label=text)
-                    page.wait_for_timeout(500)
-                    return True
-
-            log.warning(f"No match for {dropdown_label}='{value}'. "
-                        f"Available: {option_texts[:10]}")
+        label = page.locator(f'label:has-text("{label_text}")')
+        if label.count() == 0:
+            log.warning(f"Label '{label_text}' not found")
             return False
 
-        log.warning(f"Dropdown '{dropdown_label}' not found")
+        container = label.locator("xpath=following-sibling::div").first
+        inp = container.locator("input").first
+
+        # Wait for input to be enabled (cascading form)
+        try:
+            inp.wait_for(state="attached", timeout=timeout)
+            if inp.is_disabled():
+                page.wait_for_timeout(1000)
+                if inp.is_disabled():
+                    log.warning(f"Input for '{label_text}' is disabled, skipping")
+                    return False
+        except Exception:
+            log.warning(f"Input for '{label_text}' not ready")
+            return False
+
+        inp.click()
+        page.wait_for_timeout(300)
+        inp.fill(value)
+        page.wait_for_timeout(800)
+
+        # Click the first matching option
+        options = page.locator('div[role="option"]').all()
+        visible_opts = [o for o in options if o.is_visible()]
+
+        # Exact match
+        for opt in visible_opts:
+            if opt.inner_text().strip().lower() == value.lower():
+                opt.click()
+                page.wait_for_timeout(300)
+                return True
+
+        # Fuzzy match
+        for opt in visible_opts:
+            opt_text = opt.inner_text().strip()
+            if value.lower() in opt_text.lower() or opt_text.lower() in value.lower():
+                opt.click()
+                page.wait_for_timeout(300)
+                return True
+
+        # Last fallback: first visible option
+        if visible_opts:
+            log.warning(f"No exact match for {label_text}='{value}', "
+                        f"selecting: {visible_opts[0].inner_text().strip()}")
+            visible_opts[0].click()
+            page.wait_for_timeout(300)
+            return True
+
+        log.warning(f"No options found for {label_text}='{value}'")
+        # Close dropdown by pressing Escape
+        inp.press("Escape")
         return False
     except Exception as e:
-        log.warning(f"Error selecting {dropdown_label}={value}: {e}")
+        log.warning(f"Failed to fill {label_text}='{value}': {e}")
         return False
+
+
+def fill_text_input(page, label_text: str, value: str) -> bool:
+    """Fill a text input field by its label text or nearby placeholder."""
+    if not value or value == "unknown":
+        return False
+    try:
+        # Try by label first
+        label = page.locator(f'label:has-text("{label_text}")')
+        if label.count() > 0:
+            container = label.locator("xpath=following-sibling::div").first
+            inp = container.locator("input").first
+            if not inp.is_disabled():
+                inp.click()
+                inp.fill(str(value))
+                page.wait_for_timeout(300)
+                return True
+
+        # Fallback: find all inputs and look for one near the label text
+        all_inputs = page.query_selector_all("input:not([disabled])")
+        for inp in all_inputs:
+            parent = inp.evaluate_handle("el => el.closest('div').parentElement")
+            parent_text = parent.evaluate("el => el.textContent || ''")
+            if label_text.lower().split("(")[0].strip() in parent_text.lower():
+                inp.click()
+                inp.fill(str(value))
+                page.wait_for_timeout(300)
+                return True
+
+        log.warning(f"Text input for '{label_text}' not found")
+        return False
+    except Exception as e:
+        log.warning(f"Failed to fill text {label_text}='{value}': {e}")
+        return False
+
+
+def select_first_option(page, input_name: str) -> bool:
+    """Click a dropdown input by name and select the first available option."""
+    try:
+        inp = page.locator(f'input[name="{input_name}"]')
+        if inp.count() == 0 or inp.is_disabled():
+            return False
+        inp.click()
+        page.wait_for_timeout(500)
+        options = page.locator('div[role="option"]').all()
+        for opt in options:
+            if opt.is_visible():
+                opt.click()
+                page.wait_for_timeout(300)
+                return True
+        inp.press("Escape")
+        return False
+    except Exception as e:
+        log.warning(f"Failed to select first option for {input_name}: {e}")
+        return False
+
+
+def dismiss_cookies(page):
+    """Accept cookies if the banner appears."""
+    try:
+        btn = page.locator('button:has-text("Aceitar"), button:has-text("Accept")')
+        if btn.count() > 0:
+            btn.first.click()
+            page.wait_for_timeout(1000)
+    except Exception:
+        pass
 
 
 def get_valuation(page, vehicle: dict) -> dict:
-    """Fill the Standvirtual avaliador form and extract the price estimate.
-
-    Args:
-        page: Playwright page already on the avaliador URL
-        vehicle: dict with keys: llm_brand, llm_model, llm_year, llm_kms,
-                 llm_fuel_type, llm_transmission
-
-    Returns:
-        dict with 'sv_price_min', 'sv_price_max', 'sv_price_avg' or None values
-    """
+    """Fill the Standvirtual avaliador form and extract the price estimate."""
     empty = {"sv_price_min": None, "sv_price_max": None, "sv_price_avg": None}
 
     brand = str(vehicle.get("llm_brand", "unknown"))
@@ -130,25 +183,17 @@ def get_valuation(page, vehicle: dict) -> dict:
         # Navigate to avaliador
         page.goto(AVALIADOR_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
-
-        # Accept cookies if present
-        try:
-            cookie_btn = page.locator("button:has-text('Aceitar'), button:has-text('Accept')")
-            if cookie_btn.count() > 0:
-                cookie_btn.first.click()
-                page.wait_for_timeout(1000)
-        except Exception:
-            pass
+        dismiss_cookies(page)
 
         # Step 1: Year and Brand
         log.info(f"  Step 1: Year={year}, Brand={brand}")
-        find_and_select(page, "Ano", year)
+        fill_dropdown(page, "Ano (obrigatório)", year)
         page.wait_for_timeout(500)
-        find_and_select(page, "Marca", brand)
+        fill_dropdown(page, "Marca (obrigatório)", brand)
         page.wait_for_timeout(500)
 
         # Click "Continuar"
-        continuar_btn = page.locator("button:has-text('Continuar')")
+        continuar_btn = page.locator('button:has-text("Continuar")')
         if continuar_btn.count() > 0:
             continuar_btn.first.click()
             page.wait_for_timeout(2000)
@@ -156,58 +201,58 @@ def get_valuation(page, vehicle: dict) -> dict:
             log.warning("Continuar button not found")
             return empty
 
-        # Step 2: Fill the modal with additional details
-        log.info(f"  Step 2: Model={model}, KMs={kms}, Fuel={fuel}")
+        # Step 2: Fill the modal
+        # Cascading order: Model → (Segment auto) → Fuel → KMs → Potência → (Cilindrada auto) → Gearbox
+        sv_fuel = FUEL_MAP.get(fuel.lower(), fuel) if fuel != "unknown" else "unknown"
+        log.info(f"  Step 2: Model={model}, KMs={kms}, Fuel={sv_fuel}, Trans={transmission}")
 
         # Model
-        if model != "unknown":
-            find_and_select(page, "Modelo", model)
-            page.wait_for_timeout(500)
+        fill_dropdown(page, "Modelo (obrigatório)", model)
+        page.wait_for_timeout(1000)
 
-        # Segment (may auto-populate)
-        # Skip — often auto-fills or not critical
+        # Combustível
+        fill_dropdown(page, "Combustível (obrigatório)", sv_fuel)
+        page.wait_for_timeout(500)
 
-        # Quilómetros (text input, not dropdown)
-        if kms != "unknown":
-            km_input = page.locator("input[type='text'], input[type='number']").filter(
-                has=page.locator("xpath=ancestor::div[contains(., 'Quilómetros')]")
-            )
-            # Fallback: find input near "km" text
-            if km_input.count() == 0:
-                all_inputs = page.query_selector_all("input")
-                for inp in all_inputs:
-                    parent = inp.evaluate_handle("el => el.parentElement")
-                    parent_text = parent.evaluate("el => el.textContent || ''")
-                    if "km" in parent_text.lower() or "quilómetro" in parent_text.lower():
-                        inp.click()
-                        inp.fill(str(kms))
-                        break
-            else:
-                km_input.first.click()
-                km_input.first.fill(str(kms))
-            page.wait_for_timeout(500)
-
-        # Combustível (fuel type)
-        if fuel != "unknown":
-            find_and_select(page, "Combustível", fuel)
-            page.wait_for_timeout(500)
-
-        # Tipo de Caixa (transmission)
-        if transmission != "unknown":
-            find_and_select(page, "Tipo de Caixa", transmission)
-            page.wait_for_timeout(500)
-
-        # Seller type: always "Particular" (private)
+        # Quilómetros (by input name — label-based search is unreliable for this field)
+        # Default to 150000 km if unknown (average for used cars in Portugal)
+        km_value = kms if kms != "unknown" else "150000"
         try:
-            particular_btn = page.locator("button:has-text('Particular')")
+            page.fill('input[name="mileage"]', str(km_value))
+            page.wait_for_timeout(300)
+            if kms == "unknown":
+                log.info("  Using default 150,000 km (KMs unknown)")
+        except Exception as e:
+            log.warning(f"Failed to fill KMs: {e}")
+
+        # Potência — select first available option (we don't extract this from listings)
+        select_first_option(page, "engine_power")
+        page.wait_for_timeout(500)
+
+        # Cilindrada — select first available option (auto-narrows after potência)
+        select_first_option(page, "engine_capacity")
+        page.wait_for_timeout(500)
+
+        # Tipo de Caixa (default to Manual if unknown)
+        trans_value = transmission if transmission != "unknown" else "Manual"
+        fill_dropdown(page, "Tipo de Caixa (obrigatório)", trans_value)
+        page.wait_for_timeout(500)
+
+        # Close any open dropdown overlay
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+
+        # Seller type: always "Particular"
+        try:
+            particular_btn = page.locator('button:has-text("Particular")')
             if particular_btn.count() > 0:
-                particular_btn.first.click()
-                page.wait_for_timeout(500)
+                particular_btn.first.click(force=True)
+                page.wait_for_timeout(300)
         except Exception:
             pass
 
-        # Submit: "Obtenha uma avaliação grátis"
-        submit_btn = page.locator("button:has-text('Obtenha uma avaliação')")
+        # Submit
+        submit_btn = page.locator('button:has-text("Obtenha uma avaliação")')
         if submit_btn.count() > 0:
             submit_btn.first.click()
             page.wait_for_timeout(5000)
@@ -216,22 +261,33 @@ def get_valuation(page, vehicle: dict) -> dict:
             return empty
 
         # Extract the price range from the result page
-        # Look for pattern like "EUR XX,XXX - EUR XX,XXX" or "XX.XXX € - XX.XXX €"
         body_text = page.inner_text("body")
-        price_pattern = re.compile(
-            r"EUR\s*([\d.,]+)\s*[-–]\s*EUR\s*([\d.,]+)", re.IGNORECASE
-        )
-        match = price_pattern.search(body_text)
-        if not match:
-            # Try alternative format
-            price_pattern2 = re.compile(
-                r"([\d.,]+)\s*€\s*[-–]\s*([\d.,]+)\s*€"
-            )
-            match = price_pattern2.search(body_text)
 
-        if match:
-            min_str = match.group(1).replace(".", "").replace(",", "")
-            max_str = match.group(2).replace(".", "").replace(",", "")
+        # Match price formats:
+        # "12 550 EUR- 15 350 EUR" (actual result, space-separated thousands)
+        # "EUR 26,140 - EUR 31,050" (example on page, comma-separated)
+        price_patterns = [
+            re.compile(r"(\d{1,3}(?:\s\d{3})*)\s*EUR\s*[-–]\s*(\d{1,3}(?:\s\d{3})*)\s*EUR", re.IGNORECASE),
+            re.compile(r"EUR\s*(\d{1,3}(?:[.,]\d{3})*)\s*[-–]\s*EUR\s*(\d{1,3}(?:[.,]\d{3})*)", re.IGNORECASE),
+        ]
+        matches = []
+        for pat in price_patterns:
+            matches.extend(pat.findall(body_text))
+
+        # Filter out the example price (26,140 - 31,050)
+        filtered = []
+        for m in matches:
+            min_clean = re.sub(r"[\s.,]", "", m[0])
+            max_clean = re.sub(r"[\s.,]", "", m[1])
+            if min_clean == "26140" and max_clean == "31050":
+                continue
+            filtered.append(m)
+        matches = filtered
+
+        if matches:
+            min_str, max_str = matches[-1]
+            min_str = re.sub(r"[\s.,]", "", min_str)
+            max_str = re.sub(r"[\s.,]", "", max_str)
             try:
                 price_min = int(min_str)
                 price_max = int(max_str)
@@ -244,13 +300,12 @@ def get_valuation(page, vehicle: dict) -> dict:
                     "sv_price_avg": price_avg,
                 }
             except ValueError:
-                log.warning(f"Failed to parse prices: {match.group(0)}")
+                log.warning(f"Failed to parse prices: {min_str}, {max_str}")
                 return empty
-        else:
-            log.warning("Price range not found on result page")
-            # Save debug screenshot
-            page.screenshot(path="debug_standvirtual.png")
-            return empty
+
+        log.warning("Price range not found on result page")
+        page.screenshot(path="debug_standvirtual.png")
+        return empty
 
     except Exception as e:
         log.error(f"Valuation failed: {e}")

@@ -33,6 +33,7 @@ Always respond ONLY with a valid JSON object — no explanation, no markdown, no
 
 JSON schema:
 {
+  "is_vehicle": boolean,         // true if the listing is selling an actual vehicle (car, motorcycle, van, truck). false ONLY if it is clearly selling parts, accessories, tyres, subwoofers, headlights, tools, etc. When in doubt, default to true.
   "is_dealer": boolean,          // true if seller appears to be a dealer (keywords: IVA dedutível, garantia, stand, empresa, NIPC)
   "kms": integer | null,         // mileage as a plain integer (e.g. 87000), null if not mentioned
   "maintenance": {
@@ -162,6 +163,7 @@ def parse_llm_response(raw: str) -> dict:
 
 
 EMPTY_RESULT = {
+    "is_vehicle": None,
     "is_dealer": None,
     "kms": None,
     "maintenance": {"timing_belt_done": None, "ipo_ok": None},
@@ -188,8 +190,8 @@ def analyse_vehicle(title: str, description: str, price: str,
         log.error(f"Failed to analyse '{title}': {e}")
         return EMPTY_RESULT
 
-    # Vision fallback: if KMs not found in text, try reading from images
-    if result.get("kms") is None and image_urls:
+    # Vision fallback: if KMs not found in text, try reading from images (vehicles only)
+    if result.get("is_vehicle") and result.get("kms") is None and image_urls:
         log.info(f"KMs not in text, trying vision on {len(image_urls)} images...")
         kms = extract_kms_from_images(image_urls)
         if kms is not None:
@@ -203,6 +205,7 @@ def analyse_vehicle(title: str, description: str, price: str,
 def flatten_result(result: dict) -> dict:
     """Flatten nested analysis dict into CSV-friendly columns."""
     return {
+        "llm_is_vehicle":         result.get("is_vehicle"),
         "llm_is_dealer":          result.get("is_dealer"),
         "llm_kms":                result.get("kms"),
         "llm_timing_belt_done":   result.get("maintenance", {}).get("timing_belt_done"),
@@ -253,6 +256,12 @@ def enrich_csv(input_path: str, output_path: str | None = None) -> pd.DataFrame:
     if output_path is None:
         base = input_path.replace(".csv", "")
         output_path = f"{base}_enriched.csv"
+
+    # Filter out non-vehicle listings
+    non_vehicles = enriched_df["llm_is_vehicle"] == False
+    if non_vehicles.any():
+        log.info(f"Filtered out {non_vehicles.sum()} non-vehicle listing(s)")
+    enriched_df = enriched_df[~non_vehicles].reset_index(drop=True)
 
     enriched_df.to_csv(output_path, index=False, encoding="utf-8")
     log.info(f"Saved enriched data → {output_path}")

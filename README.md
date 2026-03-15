@@ -72,7 +72,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
-pip install playwright pandas beautifulsoup4 requests easyocr Pillow
+pip install -r requirements.txt
 
 # Install Playwright browsers
 playwright install chromium
@@ -81,6 +81,25 @@ playwright install chromium
 ollama pull llama3.1
 ollama serve
 ```
+
+### Configuration
+Copy the example environment file and adjust values to your setup:
+```bash
+cp .env.example .env
+```
+
+Available settings (see `.env.example` for defaults):
+| Variable | Description | Default |
+|---|---|---|
+| `NUM_VEHICLES` | Number of listings to scrape per run | `5` |
+| `MARKETPLACE_CITY` | Facebook Marketplace city | `lisbon` |
+| `CURRENCY_SYMBOL` | Currency symbol to match prices | `€` |
+| `HEADLESS` | Run browser without GUI | `false` |
+| `OLLAMA_MODEL` | Ollama model name | `llama3.1` |
+| `OLLAMA_URL` | Ollama API endpoint | `http://localhost:11434/api/chat` |
+| `RETRY_ATTEMPTS` | LLM retry attempts on failure | `3` |
+| `RETRY_DELAY` | Seconds between retries | `2` |
+| `OCR_GPU` | Use GPU for EasyOCR (requires CUDA) | `false` |
 
 ### 1. Scrape listings
 ```bash

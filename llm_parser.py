@@ -6,18 +6,23 @@ and outputs an enriched CSV ready for the benchmarking engine (Phase 4).
 LLM Backend: Ollama (local) → run `ollama serve` with llama3.1 pulled
 """
 
+import re
 import json
 import time
-import base64
 import logging
+from io import BytesIO
 import pandas as pd
 import requests
+import easyocr
+from PIL import Image
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-OLLAMA_MODEL        = "llama3.1"
-OLLAMA_VISION_MODEL = "llava:13b"
-OLLAMA_URL          = "http://localhost:11434/api/chat"
+OLLAMA_MODEL = "llama3.1"
+OLLAMA_URL   = "http://localhost:11434/api/chat"
+
+# EasyOCR reader (lazy-loaded on first use)
+_ocr_reader = None
 
 RETRY_ATTEMPTS = 3
 RETRY_DELAY    = 2   # seconds between retries
@@ -83,71 +88,71 @@ def call_llm(messages: list[dict]) -> str:
     raise RuntimeError(f"Ollama failed after {RETRY_ATTEMPTS} attempts. Last error: {last_error}")
 
 
-# ── Vision KM Extraction ─────────────────────────────────────────────────────
+# ── OCR KM Extraction ────────────────────────────────────────────────────────
 
-VISION_PROMPT = """Look at this vehicle listing image carefully.
-Does it show a dashboard, odometer, or instrument cluster?
-If yes, read the exact number displayed before "km" or "KM" on the display (e.g. "9328 km").
-Do NOT guess or estimate — only report the exact digits you can clearly read.
-If there are multiple km readings, return the largest one (total odometer, not trip meter).
-If you are NOT 100% confident in the reading, respond with: unknown
-If this image does not show a dashboard or odometer, respond with: null
-Respond with ONLY the integer, "unknown", or "null" — no other text."""
+# Pattern: digits (with optional dots/commas/spaces as thousand separators) followed by "km"
+KM_PATTERN = re.compile(
+    r"(\d[\d\s.,]*\d)\s*km\b",
+    re.IGNORECASE,
+)
 
 
-def download_image_as_base64(url: str) -> str | None:
-    """Download an image URL and return its base64 encoding."""
+def get_ocr_reader() -> easyocr.Reader:
+    """Lazy-load EasyOCR reader."""
+    global _ocr_reader
+    if _ocr_reader is None:
+        log.info("Loading EasyOCR reader...")
+        _ocr_reader = easyocr.Reader(["en", "pt"], gpu=False)
+    return _ocr_reader
+
+
+def download_image(url: str) -> Image.Image | None:
+    """Download an image URL and return a PIL Image."""
     try:
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
-        return base64.b64encode(resp.content).decode("utf-8")
+        return Image.open(BytesIO(resp.content))
     except Exception as e:
         log.warning(f"Failed to download image: {e}")
         return None
 
 
+def parse_km_value(text: str) -> int | None:
+    """Extract a km value from OCR text like '223.184 km' → 223184."""
+    digits = re.sub(r"[\s.,]", "", text)
+    if not digits.isdigit():
+        return None
+    value = int(digits)
+    if 100 < value < 1_000_000:
+        return value
+    return None
+
+
 def extract_kms_from_images(image_urls: list[str]) -> int | None:
-    """Try to read KMs from listing images using a vision model."""
+    """Try to read KMs from listing images using EasyOCR."""
+    reader = get_ocr_reader()
+    best_km = None
+
     for url in image_urls:
-        img_b64 = download_image_as_base64(url)
-        if not img_b64:
+        img = download_image(url)
+        if not img:
             continue
         try:
-            payload = {
-                "model": OLLAMA_VISION_MODEL,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": VISION_PROMPT,
-                        "images": [img_b64],
-                    }
-                ],
-                "stream": False,
-                "options": {"temperature": 0.0},
-            }
-            resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
-            resp.raise_for_status()
-            raw = resp.json()["message"]["content"].strip().lower()
-            if raw in ("null", "unknown"):
-                if raw == "unknown":
-                    log.info("Vision model not confident in reading")
-                continue
-            # Extract digits from response
-            digits = "".join(c for c in raw if c.isdigit())
-            if digits:
-                kms = int(digits)
-                # Sanity: most vehicles have < 999,999 km
-                if kms > 999_999:
-                    log.warning(f"Vision reading {kms} km is unrealistic, skipping")
-                    continue
-                if kms < 100:
-                    log.warning(f"Vision reading {kms} km is too low, skipping")
-                    continue
-                log.info(f"Vision extracted KMs: {kms}")
-                return kms
+            results = reader.readtext(img)
+            # Join all detected text into one string for pattern matching
+            full_text = " ".join(text for _, text, _ in results)
+            matches = KM_PATTERN.findall(full_text)
+            for match in matches:
+                kms = parse_km_value(match)
+                if kms is not None:
+                    log.info(f"OCR found {kms} km in image")
+                    # Keep the largest reading (total odometer, not trip)
+                    if best_km is None or kms > best_km:
+                        best_km = kms
         except Exception as e:
-            log.warning(f"Vision KM extraction failed: {e}")
-    return None
+            log.warning(f"OCR extraction failed: {e}")
+
+    return best_km
 
 
 # ── JSON Parsing ─────────────────────────────────────────────────────────────
@@ -192,7 +197,7 @@ def analyse_vehicle(title: str, description: str, price: str,
 
     # Vision fallback: if KMs not found in text, try reading from images (vehicles only)
     if result.get("is_vehicle") and result.get("kms") is None and image_urls:
-        log.info(f"KMs not in text, trying vision on {len(image_urls)} images...")
+        log.info(f"KMs not in text, trying OCR on {len(image_urls)} images...")
         kms = extract_kms_from_images(image_urls)
         if kms is not None:
             result["kms"] = kms

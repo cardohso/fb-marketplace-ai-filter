@@ -79,10 +79,23 @@ def _add_export_options(parser: argparse.ArgumentParser) -> None:
 
 def _add_report_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "--benchmark-source",
+        choices=("seed", "standvirtual"),
+        default="seed",
+        help="seed (packaged, default) or standvirtual (live valuations, cached, then seed)",
+    )
+    parser.add_argument(
         "--benchmarks",
         type=Path,
         metavar="FILE",
         help="JSON of benchmarks to use instead of the packaged seed",
+    )
+    parser.add_argument(
+        "--benchmark-ttl-days",
+        type=float,
+        default=30.0,
+        metavar="N",
+        help="how long a cached Standvirtual valuation stays fresh (default 30)",
     )
     parser.add_argument(
         "--report-out",
@@ -212,20 +225,45 @@ def _run_export(args: argparse.Namespace, settings: Settings, store: Store) -> P
     return path
 
 
-def _benchmark_provider(args: argparse.Namespace) -> SeedBenchmarkProvider:
+def _seed_provider(args: argparse.Namespace) -> SeedBenchmarkProvider:
     path = getattr(args, "benchmarks", None)
     return SeedBenchmarkProvider.from_file(path) if path else SeedBenchmarkProvider.default()
 
 
-def _run_report(args: argparse.Namespace, store: Store) -> None:
-    provider = _benchmark_provider(args)
-    report = build_report(store, provider)
+def _render_report(args: argparse.Namespace, report: object) -> None:
+    from autosieve.report import Report
+
+    assert isinstance(report, Report)
     print(render_terminal(report, top=args.top))
     out = getattr(args, "report_out", None)
     if out is not None:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(render_html(report), encoding="utf-8")
         print(f"Report: {len(report.scored)} ranked -> {out}")
+
+
+def _run_report(args: argparse.Namespace, settings: Settings, store: Store) -> None:
+    seed = _seed_provider(args)
+    if getattr(args, "benchmark_source", "seed") != "standvirtual":
+        _render_report(args, build_report(store, seed))
+        return
+
+    # Live valuations, cached in the store, with the seed as a fallback for
+    # models Standvirtual cannot value. The browser stays open for the whole run.
+    from autosieve.benchmark.cache import CachedBenchmarkProvider, LayeredBenchmarkProvider
+    from autosieve.benchmark.standvirtual import (
+        StandvirtualBenchmarker,
+        StandvirtualBenchmarkProvider,
+    )
+
+    with StandvirtualBenchmarker(settings) as valuator:
+        live = StandvirtualBenchmarkProvider(
+            valuator, reference_year=datetime.now().astimezone().year
+        )
+        cached = CachedBenchmarkProvider(live, store, ttl_days=args.benchmark_ttl_days)
+        provider = LayeredBenchmarkProvider([cached, seed])
+        report = build_report(store, provider)
+    _render_report(args, report)
 
 
 # ── commands ─────────────────────────────────────────────────────────────────
@@ -253,7 +291,7 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
         _print_enrich_summary(enrich_summary)
         _run_export(args, settings, store)
         print()
-        _run_report(args, store)
+        _run_report(args, settings, store)
     return EXIT_OK
 
 
@@ -265,7 +303,7 @@ def cmd_export(args: argparse.Namespace, settings: Settings) -> int:
 
 def cmd_report(args: argparse.Namespace, settings: Settings) -> int:
     with Store(settings.db_path) as store:
-        _run_report(args, store)
+        _run_report(args, settings, store)
     return EXIT_OK
 
 

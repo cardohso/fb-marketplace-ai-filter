@@ -19,8 +19,8 @@ priced below their market benchmark, from private sellers, with low mileage.
 | LLM enrichment | Working | Ollama with schema-constrained JSON: vehicle identity, dealer signals, maintenance, condition |
 | Odometer OCR from photos | Working, optional | EasyOCR behind the `[ocr]` extra; last resort when no mileage is found in text |
 | Storage and export | Working | SQLite keyed by listing id, price history, formula-safe CSV export |
-| Market benchmark (Standvirtual) | Not started | Phase 2 |
-| Deal score and ranked report | Not started | Phase 2 |
+| Deal score and ranked report | Working | Explainable score, terminal table and HTML page |
+| Market benchmark | Seed only | Curated seed from Standvirtual's Avaliador; live scraper not built |
 | Alerts and watchlist | Not started | Phase 3 |
 
 The HTML parser is tested against reduced copies of real listing pages captured
@@ -78,6 +78,7 @@ Or step by step:
 ```powershell
 uv run autosieve scrape --limit 20        # feed -> database
 uv run autosieve enrich                   # database -> Ollama -> database
+uv run autosieve report --report-out deals.html   # rank by deal score
 uv run autosieve export --out cars.csv    # database -> CSV
 uv run autosieve status                   # what the database holds
 ```
@@ -94,6 +95,9 @@ Useful flags:
 | `--max N` | enrich, run | Analyse at most N listings this run |
 | `--no-ocr` | enrich, run | Never download photos or run OCR |
 | `--include-non-vehicles` | export, run | Keep listings the model classified as parts |
+| `--benchmarks FILE` | report, run | Use your own benchmark JSON instead of the seed |
+| `--report-out FILE` | report, run | Write the ranked deals to an HTML page |
+| `--top N` | report, run | Rows to show in the terminal (default 20) |
 | `--db FILE` | all | Use a different SQLite file |
 | `-v` / `-q` | all | Debug logging / warnings only |
 
@@ -128,6 +132,31 @@ Environment variables or `.env` (UTF-8). Command-line flags override both.
 | `DB_PATH` | `autosieve.db` | SQLite file |
 | `EXPORT_DIR` | `.` | Where timestamped exports go |
 
+## The deal score
+
+For each listing AutoSieve resolves a canonical identity (make, model, year,
+fuel), looks up a market benchmark for it, and computes:
+
+```
+score = (benchmark median / asking price) x condition_multiplier
+```
+
+A score above 1.0 means the car is priced below what its identity normally
+fetches. The condition multiplier stacks explainable adjustments: a dealer,
+accident history, paint issues or a pending IUC each reduce it; a valid
+inspection or a done timing belt add a little; mileage that is high or low for
+the car's age nudges it. Every adjustment is shown as a reason. Listings that
+cannot be judged (no price, a placeholder price, an unknown model or year, not a
+vehicle) are reported with a status, never a made-up number, and a ratio far
+below market is flagged to verify rather than trusted.
+
+Benchmarks come from a `BenchmarkProvider`. Today that is a curated seed file
+(`src/autosieve/benchmark/data/seed_benchmarks.json`) derived from Standvirtual's
+Avaliador, covering common Portuguese models. **The seed values are placeholders
+to refresh with real data**, and coverage is deliberately small, so many
+listings will report no benchmark until you extend it or a live provider is
+added. Point `--benchmarks` at your own JSON in the same shape to override it.
+
 ## How it works
 
 ```
@@ -135,8 +164,10 @@ Marketplace feed ──► listing ids ──► listing HTML ──► parse_li
                                                         (title, price, details,
                                                          mileage, fuel, gearbox,
                                                          year, photos)
-SQLite ──► Ollama (JSON schema) ──► Analysis ──► mileage resolution ──► SQLite ──► CSV
+SQLite ──► Ollama (JSON schema) ──► Analysis ──► mileage resolution ──► SQLite
                                                   details > prose > LLM > OCR
+SQLite ──► resolve identity ──► benchmark lookup ──► deal score ──► ranked report
+                                                                     (terminal + HTML)
 ```
 
 * `autosieve/scraper/` drives Chromium (`browser.py`) and parses HTML
@@ -180,8 +211,11 @@ original.
 
 - [x] Phase 1: package structure, validated config, typed models, tested parser,
   schema-constrained LLM output, safe OCR, SQLite store, CLI, CI
-- [ ] Phase 2: vehicle identity, Standvirtual benchmark, deal score with a
-  cost-adjusted condition multiplier, ranked report
+- [x] Phase 2: vehicle identity, deal score with a cost-adjusted condition
+  multiplier, ranked terminal and HTML report, benchmark provider interface
+  with a curated seed
+- [ ] Phase 2 remaining: a live Standvirtual benchmark provider (cached, with a
+  TTL) and a broader benchmark set to lift coverage
 - [ ] Phase 3: watchlist, price-drop alerts, due-diligence cards, duplicate and
   stock-photo detection
 

@@ -29,9 +29,9 @@ from autosieve.scraper.errors import ListingUnavailableError
 PRICE_WINDOW = 3
 # Title, price, posted-ago, location: the location is within a few lines of the title.
 LOCATION_WINDOW = 5
-MAX_DETAIL_LINES = 20
-MAX_DETAIL_LINE_LEN = 80
 MAX_ATTRIBUTE_VALUE_LEN = 80
+# A text node at least this long (or containing a newline) is prose, not an attribute value.
+PROSE_MIN_LEN = 60
 MAX_IMAGES = 30
 _YEAR = re.compile(r"\b(19[5-9]\d|20\d\d)\b")
 
@@ -126,28 +126,31 @@ def _is_description_stop(text: str, location: str | None) -> bool:
     )
 
 
-def _description_and_attributes(
-    lines: _Lines, location: str | None
+def _looks_like_prose(text: str) -> bool:
+    """A multi-line or long text node is the seller's description, not an attribute value."""
+    return "\n" in text or len(text) > PROSE_MIN_LEN
+
+
+def _extract_block(
+    lines: _Lines, start: int, end: int, location: str | None, *, prose_only_if_long: bool
 ) -> tuple[str | None, tuple[str, ...]]:
-    """Seller prose after the description heading, plus any label/value pairs in front of it.
+    """Split ``texts[start:end]`` into seller prose and attribute lines.
 
-    Facebook renders attributes such as "Estado" / "Usado - Como novo" between
-    the heading and the prose. They are returned as ``"Estado: Usado - Como novo"``
-    so the details extractors can read them like any other detail line.
+    Facebook renders attributes as a label line followed by a value line
+    ("Estado" / "Usado - Aceitável"); those become ``"Estado: Usado - Aceitável"``.
+    Inside a description-heading block every non-attribute line is prose. Inside a
+    details block, only a long or multi-line node is prose (``prose_only_if_long``)
+    so standalone values like "Gasóleo" stay attributes.
     """
-    start = lines.index_of(locale.DESCRIPTION_HEADINGS)
-    if start is None:
-        return _description_fallback(lines, location), ()
-
     attributes: list[str] = []
     parts: list[str] = []
     texts = lines.texts
-    i = start + 1
-    while i < len(texts):
+    i = start
+    while i < end:
         text = texts[i]
         if _is_description_stop(text, location):
             break
-        has_value = i + 1 < len(texts) and not _is_description_stop(texts[i + 1], location)
+        has_value = i + 1 < end and not _is_description_stop(texts[i + 1], location)
         if (
             locale.is_attribute_label(text)
             and has_value
@@ -159,9 +162,49 @@ def _description_and_attributes(
         if not _is_ui_label(text):
             cleaned = _strip_ui_affixes(text)
             if cleaned:
-                parts.append(cleaned)
+                if not prose_only_if_long or _looks_like_prose(cleaned):
+                    parts.append(cleaned)
+                else:
+                    attributes.append(cleaned)
         i += 1
     return ("\n".join(parts) or None), tuple(attributes)
+
+
+def _description_and_details(
+    lines: _Lines, location: str | None
+) -> tuple[str | None, tuple[str, ...]]:
+    """Resolve the description and the detail lines across both observed page layouts.
+
+    Layout A has a "Detalhes" block of attributes and a separate "Descrição do
+    vendedor" block of prose. Layout B has only a "Detalhes" block whose trailing
+    free-text node is the description. Some pages have neither heading, and fall
+    back to the longest prose line after the title.
+    """
+    desc_start = lines.index_of(locale.DESCRIPTION_HEADINGS)
+    det_start = lines.index_of(locale.DETAILS_HEADINGS)
+    n = len(lines.texts)
+
+    attributes: tuple[str, ...] = ()
+    det_prose: str | None = None
+    if det_start is not None:
+        det_end = desc_start if desc_start is not None and desc_start > det_start else n
+        det_prose, det_attrs = _extract_block(
+            lines, det_start + 1, det_end, location, prose_only_if_long=True
+        )
+        attributes += det_attrs
+
+    description: str | None = None
+    if desc_start is not None:
+        description, desc_attrs = _extract_block(
+            lines, desc_start + 1, n, location, prose_only_if_long=False
+        )
+        attributes += desc_attrs
+
+    if description is None:
+        description = det_prose
+    if description is None:
+        description = _description_fallback(lines, location)
+    return description, attributes
 
 
 def _description_fallback(lines: _Lines, location: str | None) -> str | None:
@@ -184,23 +227,6 @@ def _description_fallback(lines: _Lines, location: str | None) -> str | None:
         if len(cleaned) > 30 and len(cleaned) > len(best):
             best = cleaned
     return best or None
-
-
-def _details(lines: _Lines) -> tuple[str, ...]:
-    """Short lines under a details heading, when the page has one."""
-    start = lines.index_of(locale.DETAILS_HEADINGS)
-    if start is None:
-        return ()
-    collected: list[str] = []
-    for text in lines.texts[start + 1 :]:
-        if text in locale.DESCRIPTION_HEADINGS or text in locale.DESCRIPTION_STOP_LABELS:
-            break
-        if _is_ui_label(text) or len(text) > MAX_DETAIL_LINE_LEN:
-            continue
-        collected.append(text)
-        if len(collected) >= MAX_DETAIL_LINES:
-            break
-    return tuple(collected)
 
 
 def _kms_from_details(details: tuple[str, ...]) -> int | None:
@@ -305,8 +331,7 @@ def parse_listing_html(
     lines = _leaf_lines(soup)
     price_raw, price_eur = _price(lines, currency)
     location = _location(lines, price_raw)
-    description, attributes = _description_and_attributes(lines, location)
-    details = (*_details(lines), *attributes)
+    description, details = _description_and_details(lines, location)
 
     return Listing(
         id=listing_id,

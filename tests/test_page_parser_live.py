@@ -79,9 +79,33 @@ def test_free_listing_with_condition_attribute(fixtures_dir: Path) -> None:
     assert listing.is_complete
 
 
+def test_details_block_without_description_heading(fixtures_dir: Path) -> None:
+    # Regression: this page has a "Detalhes" block but no "Descrição do vendedor"
+    # heading, so the description text used to land in the details tuple and the
+    # listing came out incomplete.
+    listing = parse(fixtures_dir, "live_moped_details_only.html", "4001983143444871")
+
+    assert listing.title == "Vendo ou troco"
+    assert listing.price_eur == 10  # a genuine placeholder price, not a sidebar leak
+    assert listing.location == "Cadaval, Lisboa"
+    assert len(listing.details) == 1
+    assert listing.details[0].startswith("Estado: Usado")
+    assert listing.details[0].endswith("Aceitável")
+    assert listing.description is not None
+    assert listing.description.startswith("Zundapp 4 turbina efs")
+    assert "Mora sem documentos" in listing.description
+    assert "Ver menos" not in listing.description
+    assert listing.is_complete
+
+
 @pytest.mark.parametrize(
     "name",
-    ["live_moto_honda_hornet.html", "live_car_opel_corsa.html", "live_free_scooter.html"],
+    [
+        "live_moto_honda_hornet.html",
+        "live_car_opel_corsa.html",
+        "live_free_scooter.html",
+        "live_moped_details_only.html",
+    ],
 )
 def test_live_fixtures_never_pick_sidebar_prices(fixtures_dir: Path, name: str) -> None:
     listing = parse(fixtures_dir, name, "1000000000")

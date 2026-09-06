@@ -1,134 +1,190 @@
-# AutoSieve 🚗
+# AutoSieve
 
-![Status](https://img.shields.io/badge/Status-Work%20In%20Progress-orange)
+![Status](https://img.shields.io/badge/Status-Alpha-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
-![Tech](https://img.shields.io/badge/Made%20with-Python-blue)
+![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 
-**AutoSieve** is a specialized AI-driven program designed to identify "Value Arbitrage" vehicle deals on Facebook Marketplace Portugal. By bridging the gap between unstructured social media listings and structured market benchmarks (Standvirtual), AutoSieve acts as an automated "Personal Car Scout."
+AutoSieve is a personal car scout for **Facebook Marketplace Portugal**. It collects
+vehicle listings, reads the facts Facebook shows on the page, asks a local LLM
+(Ollama) for the facts hidden in the seller's prose, and stores everything in a
+SQLite database you can export to CSV. The end goal is a **deal score**: listings
+priced below their market benchmark, from private sellers, with low mileage.
 
----
+## What works today
 
-## 🎯 The Mission
-The objective is to find high-value deals by identifying listings where the **Price < Market Average**, specifically targeting **Private Sellers** with **Low Mileage** vehicles.
-
-### The "Value Arbitrage" Formula
-AutoSieve calculates a **Deal Score ($S$)** using the following logic:
-
-$$S = \frac{\text{Market Average (Standvirtual)}}{\text{Listing Price}} \times \text{Condition Multiplier}$$
-
----
-
-## 🛠️ Key Engineering Features
-
-### 1. DOM Scraper Engine (`scraper.py`)
-* Uses **Playwright** to navigate Facebook Marketplace and collect vehicle listing URLs.
-* Parses each listing's HTML with **BeautifulSoup** to extract:
-    * **Title** from the `<h1>` tag.
-    * **Price** by matching the `€` currency symbol.
-    * **Seller description** from the "Descrição do vendedor" section, automatically expanding truncated text via "Ver mais".
-    * **Listing images** — product photo URLs for OCR-based mileage extraction.
-* Handles cookie consent banners and login overlays automatically.
-* Outputs a timestamped CSV (`vehicles_YYYY-MM-DD_HH-MM-SS.csv`).
-
-### 2. LLM Parsing Layer (`llm_parser.py`)
-* Enriches scraped CSVs with structured data extracted by a local **Llama 3.1** model via **Ollama**.
-* **Non-vehicle filter:** Automatically detects and filters out listings that aren't actual vehicles (parts, accessories, tyres, subwoofers, etc.).
-* Each listing description is analysed and parsed into structured JSON:
-    * `is_vehicle`: Flags whether the listing is an actual vehicle or just parts/accessories.
-    * `is_dealer`: Detects "hidden" dealers using keywords like *IVA dedutível*, *stand*, *garantia*.
-    * `kms`: Extracts mileage as a plain integer.
-    * `maintenance`: Identifies timing belt replacement and *IPO* (vehicle inspection) status.
-    * `iuc_status`: IUC tax status (`ok`, `pending`, `unknown`).
-    * `condition`: Flags accident history and paint issues.
-    * `notes`: One-sentence summary of standout aspects.
-* **OCR fallback:** When mileage is not found in the description text, listing images are processed with **EasyOCR** to read the odometer/dashboard display. Searches for numbers followed by "km", keeps the largest reading (total odometer vs trip), and rejects unrealistic values (outside 100–999,999 km).
-* Outputs an enriched CSV (`vehicles_..._enriched.csv`) with `llm_` prefixed columns.
-
-### 3. Market Benchmarking (Planned)
-* Will integrate a Portuguese market baseline using data derived from **Standvirtual's "Avaliador."**
-* Will compute real-time price comparisons to flag listings priced significantly below the localized market average.
-
-### 4. Smart Filtering & UI (Planned)
-* **Dealer Shield:** Automatically deprioritize listings identified as commercial entities to focus on private deals.
-* **Visual Overlays:** Inject a "Deal Meter" (Green/Yellow/Red) directly onto the Facebook Marketplace interface.
-
----
-
-## 🏗️ Technical Stack
-* **Language:** Python
-* **Scraping:** Playwright + BeautifulSoup
-* **LLM:** Ollama (Llama 3.1, local)
-* **OCR:** EasyOCR (for odometer reading from images)
-* **Data:** Pandas
-
----
-
-## 🚀 Usage
-
-### Prerequisites
-```bash
-# Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install Playwright browsers
-playwright install chromium
-
-# Install and start Ollama with Llama 3.1
-ollama pull llama3.1
-ollama serve
-```
-
-### Configuration
-Copy the example environment file and adjust values to your setup:
-```bash
-cp .env.example .env
-```
-
-Available settings (see `.env.example` for defaults):
-| Variable | Description | Default |
+| Stage | Status | Notes |
 |---|---|---|
-| `NUM_VEHICLES` | Number of listings to scrape per run | `5` |
-| `MARKETPLACE_CITY` | Facebook Marketplace city | `lisbon` |
-| `CURRENCY_SYMBOL` | Currency symbol to match prices | `€` |
-| `HEADLESS` | Run browser without GUI | `false` |
-| `OLLAMA_MODEL` | Ollama model name | `llama3.1` |
-| `OLLAMA_URL` | Ollama API endpoint | `http://localhost:11434/api/chat` |
-| `RETRY_ATTEMPTS` | LLM retry attempts on failure | `3` |
-| `RETRY_DELAY` | Seconds between retries | `2` |
-| `OCR_GPU` | Use GPU for EasyOCR (requires CUDA) | `false` |
+| Scrape listing feed and pages | Working | Playwright, anonymous session, condition-based waits, login-wall detection |
+| Deterministic page facts | Working | Price, mileage, fuel, gearbox and year from the title and details block |
+| LLM enrichment | Working | Ollama with schema-constrained JSON: vehicle identity, dealer signals, maintenance, condition |
+| Odometer OCR from photos | Working, optional | EasyOCR behind the `[ocr]` extra; last resort when no mileage is found in text |
+| Storage and export | Working | SQLite keyed by listing id, price history, formula-safe CSV export |
+| Market benchmark (Standvirtual) | Not started | Phase 2 |
+| Deal score and ranked report | Not started | Phase 2 |
+| Alerts and watchlist | Not started | Phase 3 |
 
-### 1. Scrape listings
-```bash
-python3 scraper.py
+The HTML parser is tested against reduced copies of real listing pages captured
+in September 2026 (`tests/fixtures/live_*.html`) plus synthetic fixtures for
+layouts not yet seen live. Facebook changes its markup often. When a run reports
+listings as *incomplete*, rerun with `--debug-html` and turn the saved pages into
+fixtures with `scripts/make_fixture.py`.
+
+## Before you run it
+
+Scraping Facebook Marketplace is against Facebook's terms of service. AutoSieve
+runs an anonymous browser session and does not log in, which limits what it can
+see and can still be rate-limited or blocked. Do not point it at an account you
+care about, and keep the volume small.
+
+## Install
+
+Requirements: Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), and
+[Ollama](https://ollama.com/) with a model pulled.
+
+```powershell
+git clone https://github.com/cardohso/fb-marketplace-ai-filter.git
+cd fb-marketplace-ai-filter
+uv sync                      # core dependencies
+uv run playwright install chromium
+ollama pull llama3.1
 ```
-Outputs: `vehicles_YYYY-MM-DD_HH-MM-SS.csv`
 
-### 2. Enrich with LLM analysis
-```bash
-python3 llm_parser.py vehicles_YYYY-MM-DD_HH-MM-SS.csv
+Optional odometer OCR pulls in PyTorch (roughly two gigabytes):
+
+```powershell
+uv sync --extra ocr
 ```
-Outputs: `vehicles_YYYY-MM-DD_HH-MM-SS_enriched.csv`
 
----
+Without `uv`:
 
-## 🚀 Development Roadmap (WIP)
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ".[ocr]"
+playwright install chromium
+```
 
-- [x] **Phase 1: Project Architecture & Roadmap Definition**
-- [x] **Phase 2: DOM Scraper Engine** - Extract titles, prices, and descriptions from Marketplace listings.
-- [x] **Phase 3: LLM Parsing Layer** - Enrich listings with structured data via Ollama/Llama 3.1.
-- [ ] **Phase 4: Benchmarking Engine** - Integrate Standvirtual price averages for top Portuguese models.
-- [ ] **Phase 5: UI Overlay** - Inject "Deal Score" badges into the browser.
+Copy `.env.example` to `.env` and adjust what you need. Every setting is
+validated at startup, so a typo fails immediately with a readable message.
 
----
+## Use
 
-## 👨‍💻 Author
+```powershell
+uv run autosieve run --limit 20           # scrape, enrich, export in one go
+```
+
+Or step by step:
+
+```powershell
+uv run autosieve scrape --limit 20        # feed -> database
+uv run autosieve enrich                   # database -> Ollama -> database
+uv run autosieve export --out cars.csv    # database -> CSV
+uv run autosieve status                   # what the database holds
+```
+
+Useful flags:
+
+| Flag | Command | Effect |
+|---|---|---|
+| `--limit N` | scrape, run | Listings to collect from the feed |
+| `--city porto` | scrape, run | Marketplace city slug; browser geolocation follows it |
+| `--headless` | scrape, run | Run Chromium without a window (more often blocked) |
+| `--debug-html DIR` | scrape, run | Save every fetched page for parser debugging and fixtures |
+| `--retry-failed` | enrich, run | Re-analyse listings whose last LLM attempt failed |
+| `--max N` | enrich, run | Analyse at most N listings this run |
+| `--no-ocr` | enrich, run | Never download photos or run OCR |
+| `--include-non-vehicles` | export, run | Keep listings the model classified as parts |
+| `--db FILE` | all | Use a different SQLite file |
+| `-v` / `-q` | all | Debug logging / warnings only |
+
+Runs are idempotent. Scraping the same listing again updates its row and appends
+to its price history; enrichment only touches listings without a current
+analysis. A crash or `Ctrl+C` keeps everything stored so far.
+
+## Configuration
+
+Environment variables or `.env` (UTF-8). Command-line flags override both.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NUM_VEHICLES` | `5` | Listings per scrape |
+| `MARKETPLACE_CITY` | `lisbon` | City slug in the Marketplace URL |
+| `CURRENCY_SYMBOL` | `€` | Symbol that marks a price on the page |
+| `HEADLESS` | `false` | Headless Chromium |
+| `GEO_LATITUDE`, `GEO_LONGITUDE` | city centre | Browser geolocation override |
+| `PAGE_TIMEOUT_MS` | `30000` | Wait for the feed |
+| `LISTING_TIMEOUT_MS` | `15000` | Wait for a listing page |
+| `DEBUG_HTML_DIR` | unset | Save fetched pages here |
+| `OLLAMA_MODEL` | `llama3.1` | Any model pulled in Ollama |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama base URL (`OLLAMA_URL` with a path still works) |
+| `LLM_TIMEOUT_S` | `120` | Per-request timeout |
+| `RETRY_ATTEMPTS` | `3` | Retries on transport or server errors |
+| `RETRY_DELAY_S` | `2` | Pause between retries |
+| `OCR_ENABLED` | `true` | Try OCR when no mileage is found in text |
+| `OCR_GPU` | `false` | Use CUDA for EasyOCR |
+| `OCR_MAX_IMAGES` | `6` | Photos tried per listing |
+| `IMAGE_MAX_BYTES` | `10000000` | Largest photo downloaded |
+| `IMAGE_TIMEOUT_S` | `15` | Photo download timeout |
+| `DB_PATH` | `autosieve.db` | SQLite file |
+| `EXPORT_DIR` | `.` | Where timestamped exports go |
+
+## How it works
+
+```
+Marketplace feed ──► listing ids ──► listing HTML ──► parse_listing_html() ──► SQLite
+                                                        (title, price, details,
+                                                         mileage, fuel, gearbox,
+                                                         year, photos)
+SQLite ──► Ollama (JSON schema) ──► Analysis ──► mileage resolution ──► SQLite ──► CSV
+                                                  details > prose > LLM > OCR
+```
+
+* `autosieve/scraper/` drives Chromium (`browser.py`) and parses HTML
+  (`page_parser.py`). Every Facebook UI string lives in `locale.py`.
+* `autosieve/llm/` talks to Ollama. The output is constrained to the JSON schema
+  of `models.Analysis`, then validated; seller text is wrapped and sanitised so
+  it cannot act as instructions.
+* `autosieve/ocr/` downloads photos only from allow-listed HTTPS hosts with a
+  size cap, and reads odometers with EasyOCR when nothing else found a mileage.
+* `autosieve/storage/` is the SQLite store and the CSV export. Unknowns are
+  `NULL`, never the string "unknown", and exported cells are escaped against
+  spreadsheet formula injection.
+* `autosieve/pipeline.py` runs each listing inside its own error boundary and
+  produces a run summary. Only a login wall or an unreachable Ollama aborts a run.
+
+## Develop
+
+```powershell
+uv sync --extra dev
+uv run ruff check . ; uv run ruff format --check .
+uv run mypy
+uv run pytest
+```
+
+Tests never touch Facebook or Ollama: the parser runs against HTML fixtures in
+`tests/fixtures/`, and HTTP is mocked with `responses`. CI runs the same checks on
+Python 3.12, 3.13 and 3.14.
+
+To capture new fixtures, run a scrape with `--debug-html debug_html`, then reduce
+a saved page to a small faithful fixture and review it before committing:
+
+```powershell
+uv run python scripts/make_fixture.py debug_html/<id>.html tests/fixtures/live_<name>.html
+```
+
+The script keeps only the visible text, headings and image tags the parser reads,
+and checks that the reduced page yields exactly the same text lines as the
+original.
+
+## Roadmap
+
+- [x] Phase 1: package structure, validated config, typed models, tested parser,
+  schema-constrained LLM output, safe OCR, SQLite store, CLI, CI
+- [ ] Phase 2: vehicle identity, Standvirtual benchmark, deal score with a
+  cost-adjusted condition multiplier, ranked report
+- [ ] Phase 3: watchlist, price-drop alerts, due-diligence cards, duplicate and
+  stock-photo detection
+
+## Author
+
 **João Pedro Cardoso**
-*CS Intern & Aspiring AI/LLM Engineer*
-
----
-
-*This project is a work-in-progress focused on applying NLP and Semantic Analysis to solve real-world data fragmentation in the automotive market.*

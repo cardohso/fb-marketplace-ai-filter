@@ -1,0 +1,114 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "autosieve"
+version = "0.1.0"
+description = "Value-arbitrage car scout for Facebook Marketplace Portugal: scrape, enrich with a local LLM, and rank."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [{ name = "João Pedro Cardoso" }]
+keywords = ["scraping", "playwright", "ollama", "marketplace", "cars"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "playwright>=1.62,<2",
+  "beautifulsoup4>=4.15,<5",
+  "requests>=2.34,<3",
+  "pydantic>=2.13,<3",
+  "pydantic-settings>=2.15,<3",
+]
+
+[project.optional-dependencies]
+# Odometer OCR from listing photos. Pulls in PyTorch; install only if you want it.
+ocr = [
+  "easyocr>=1.7.2",
+  "numpy>=2",
+  "pillow>=12",
+]
+dev = [
+  "pytest>=9.1",
+  "responses>=0.26",
+  "ruff>=0.16",
+  "mypy>=2.3",
+  "types-requests>=2.33",
+]
+
+[project.scripts]
+autosieve = "autosieve.cli:main"
+
+[project.urls]
+Repository = "https://github.com/cardohso/fb-marketplace-ai-filter"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/autosieve"]
+
+# ── Ruff ─────────────────────────────────────────────────────────────────────
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # isort
+  "UP",       # pyupgrade
+  "B",        # bugbear
+  "SIM",      # simplify
+  "C4",       # comprehensions
+  "PTH",      # use pathlib
+  "RET",      # return
+  "ARG",      # unused arguments
+  "T20",      # no print
+  "N",        # naming
+  "RUF",      # ruff-specific
+  "PIE",
+  "ISC",
+  "LOG",
+  "G",        # logging format
+  "DTZ",      # timezone-aware datetimes
+]
+ignore = [
+  "G004",     # f-strings in logging are fine at this scale
+  "ISC001",   # conflicts with the formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/autosieve/cli.py" = ["T20"]   # the CLI is the one place that prints
+"scripts/**" = ["T20"]             # developer tools print by design
+"tests/**" = ["ARG", "PLR2004"]
+
+# ── mypy ─────────────────────────────────────────────────────────────────────
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+pretty = true
+mypy_path = "src"
+packages = ["autosieve"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["easyocr", "easyocr.*", "numpy", "numpy.*", "PIL", "PIL.*", "responses", "responses.*"]
+ignore_missing_imports = true
+
+# ── pytest ───────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+  "browser: needs a real Playwright browser (skipped in CI)",
+]
+filterwarnings = ["error::DeprecationWarning:autosieve.*"]

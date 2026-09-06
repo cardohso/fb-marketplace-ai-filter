@@ -83,3 +83,14 @@ def test_configuration_error_is_readable(
     err = capsys.readouterr().err
     assert "Configuration error" in err
     assert "num_vehicles" in err
+
+
+def test_report_command_runs_on_seed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db = tmp_path / "test.db"
+    seed(db)
+    out = tmp_path / "deals.html"
+    assert main(["--db", str(db), "report", "--report-out", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "scored" in printed
+    assert out.exists()
+    assert out.read_text(encoding="utf-8").startswith("<!doctype html>")

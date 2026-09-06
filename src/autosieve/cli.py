@@ -15,11 +15,13 @@ import requests
 from pydantic import ValidationError
 
 from autosieve import __version__
+from autosieve.benchmark import SeedBenchmarkProvider
 from autosieve.config import Settings, load_settings
 from autosieve.llm import ListingAnalyzer, LlmError, OllamaClient
 from autosieve.logging_setup import setup_logging
 from autosieve.ocr import ImagePolicy, OdometerReader, download_image
 from autosieve.pipeline import EnrichSummary, ScrapeSummary, enrich, scrape
+from autosieve.report import build_report, render_html, render_terminal
 from autosieve.scraper import ScrapeError
 from autosieve.storage import Store, export_csv
 
@@ -75,6 +77,24 @@ def _add_export_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_report_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--benchmarks",
+        type=Path,
+        metavar="FILE",
+        help="JSON of benchmarks to use instead of the packaged seed",
+    )
+    parser.add_argument(
+        "--report-out",
+        type=Path,
+        metavar="FILE",
+        help="write the ranked deals to this HTML file",
+    )
+    parser.add_argument(
+        "--top", type=int, default=20, metavar="N", help="rows to show in the terminal (default 20)"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="autosieve",
@@ -96,15 +116,20 @@ def build_parser() -> argparse.ArgumentParser:
     _add_enrich_options(p_enrich)
     p_enrich.set_defaults(func=cmd_enrich)
 
-    p_run = sub.add_parser("run", help="scrape, enrich and export in one go")
+    p_run = sub.add_parser("run", help="scrape, enrich, export and rank in one go")
     _add_scrape_options(p_run)
     _add_enrich_options(p_run)
     _add_export_options(p_run)
+    _add_report_options(p_run)
     p_run.set_defaults(func=cmd_run)
 
     p_export = sub.add_parser("export", help="write the database to CSV")
     _add_export_options(p_export)
     p_export.set_defaults(func=cmd_export)
+
+    p_report = sub.add_parser("report", help="rank stored listings by deal score")
+    _add_report_options(p_report)
+    p_report.set_defaults(func=cmd_report)
 
     p_status = sub.add_parser("status", help="show what the database holds")
     p_status.set_defaults(func=cmd_status)
@@ -184,6 +209,22 @@ def _run_export(args: argparse.Namespace, settings: Settings, store: Store) -> P
     return path
 
 
+def _benchmark_provider(args: argparse.Namespace) -> SeedBenchmarkProvider:
+    path = getattr(args, "benchmarks", None)
+    return SeedBenchmarkProvider.from_file(path) if path else SeedBenchmarkProvider.default()
+
+
+def _run_report(args: argparse.Namespace, store: Store) -> None:
+    provider = _benchmark_provider(args)
+    report = build_report(store, provider)
+    print(render_terminal(report, top=args.top))
+    out = getattr(args, "report_out", None)
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(render_html(report), encoding="utf-8")
+        print(f"Report: {len(report.scored)} ranked -> {out}")
+
+
 # ── commands ─────────────────────────────────────────────────────────────────
 
 
@@ -208,12 +249,20 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
         enrich_summary = _run_enrich(args, settings, store)
         _print_enrich_summary(enrich_summary)
         _run_export(args, settings, store)
+        print()
+        _run_report(args, store)
     return EXIT_OK
 
 
 def cmd_export(args: argparse.Namespace, settings: Settings) -> int:
     with Store(settings.db_path) as store:
         _run_export(args, settings, store)
+    return EXIT_OK
+
+
+def cmd_report(args: argparse.Namespace, settings: Settings) -> int:
+    with Store(settings.db_path) as store:
+        _run_report(args, store)
     return EXIT_OK
 
 

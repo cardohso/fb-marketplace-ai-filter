@@ -39,11 +39,15 @@ def test_canonical_make(raw: str, expected: str) -> None:
     ("raw", "expected"),
     [
         ("Clio", "clio"),
-        ("Clio 1.5 dCi Dynamique", "clio dynamique"),
+        ("Clio 1.5 dCi Dynamique", "clio"),
         ("Mégane", "megane"),
         ("Série 3", "serie 3"),
-        ("208 1.2 PureTech", "208 puretech"),
+        ("208 1.2 PureTech", "208"),
         ("A3 1.9 TDI", "a3"),
+        ("118 d cabrio", "118"),
+        ("Classe C 220 d SW", "classe c"),
+        ("Golf Variant 2.0 TDI", "golf"),
+        ("Corsa C 1.2", "corsa"),
     ],
 )
 def test_canonical_model_strips_trim_and_engine(raw: str, expected: str) -> None:

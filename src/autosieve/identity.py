@@ -32,6 +32,11 @@ _MODEL_NOISE = re.compile(
 _PUNCT = re.compile(r"[^a-z0-9 ]+")
 _WS = re.compile(r"\s+")
 
+# Model families whose name is genuinely two tokens (Mercedes "Classe C",
+# BMW "Serie 3"); for everything else the family is the first token, so trims
+# and body styles ("Dynamique", "Variant", "cabrio") drop away.
+_TWO_TOKEN_FAMILIES = frozenset({"classe", "class", "serie", "series"})
+
 
 def _fold(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text)
@@ -48,9 +53,14 @@ def canonical_model(model: str) -> str:
     # split into "1 5" by the punctuation pass.
     folded = _MODEL_NOISE.sub(" ", _fold(model))
     folded = _PUNCT.sub(" ", folded)
-    # Keep only the first token or two: the model family, not the full trim string.
     tokens = [t for t in _WS.sub(" ", folded).strip().split(" ") if t]
-    return " ".join(tokens[:2])
+    if not tokens:
+        return ""
+    # The family is the first token, plus its discriminator for "Classe C" /
+    # "Serie 3"; trims and body styles after it are dropped.
+    if tokens[0] in _TWO_TOKEN_FAMILIES and len(tokens) > 1:
+        return f"{tokens[0]} {tokens[1]}"
+    return tokens[0]
 
 
 class VehicleKey(BaseModel, frozen=True):

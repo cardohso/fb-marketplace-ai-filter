@@ -20,7 +20,12 @@ from typing import Any, Self
 
 from autosieve.models import Analysis, AnalysisRecord, Listing, utcnow
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Statements that take a database from version N to N + 1.
+_MIGRATIONS: dict[int, tuple[str, ...]] = {
+    1: ("ALTER TABLE listings ADD COLUMN location TEXT",),
+}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
@@ -37,6 +42,7 @@ CREATE TABLE IF NOT EXISTS listings (
     year            INTEGER,
     image_urls_json TEXT NOT NULL DEFAULT '[]',
     city            TEXT,
+    location        TEXT,
     first_seen_at   TEXT NOT NULL,
     last_seen_at    TEXT NOT NULL,
     scraped_at      TEXT NOT NULL
@@ -94,11 +100,18 @@ class Store:
             row = self._conn.execute("SELECT version FROM schema_version").fetchone()
             if row is None:
                 self._conn.execute("INSERT INTO schema_version VALUES (?)", (SCHEMA_VERSION,))
-            elif row["version"] != SCHEMA_VERSION:
+                return
+            version = int(row["version"])
+            if version > SCHEMA_VERSION:
                 raise RuntimeError(
-                    f"database schema is version {row['version']}, "
-                    f"this build expects {SCHEMA_VERSION}"
+                    f"database schema is version {version}, newer than this build "
+                    f"({SCHEMA_VERSION}); upgrade autosieve"
                 )
+            while version < SCHEMA_VERSION:
+                for statement in _MIGRATIONS[version]:
+                    self._conn.execute(statement)
+                version += 1
+            self._conn.execute("UPDATE schema_version SET version = ?", (version,))
 
     def close(self) -> None:
         self._conn.close()
@@ -136,6 +149,7 @@ class Store:
             "year": listing.year,
             "image_urls_json": json.dumps(list(listing.image_urls)),
             "city": listing.city,
+            "location": listing.location,
             "now": now,
             "scraped_at": _iso(listing.scraped_at),
         }
@@ -145,10 +159,10 @@ class Store:
                     """
                     INSERT INTO listings (id, url, title, price_eur, price_raw, description,
                         details_json, kms, fuel, gearbox, year, image_urls_json, city,
-                        first_seen_at, last_seen_at, scraped_at)
+                        location, first_seen_at, last_seen_at, scraped_at)
                     VALUES (:id, :url, :title, :price_eur, :price_raw, :description,
                         :details_json, :kms, :fuel, :gearbox, :year, :image_urls_json, :city,
-                        :now, :now, :scraped_at)
+                        :location, :now, :now, :scraped_at)
                     """,
                     params,
                 )
@@ -161,7 +175,8 @@ class Store:
                     price_raw = :price_raw, description = :description,
                     details_json = :details_json, kms = :kms, fuel = :fuel,
                     gearbox = :gearbox, year = :year, image_urls_json = :image_urls_json,
-                    city = :city, last_seen_at = :now, scraped_at = :scraped_at
+                    city = :city, location = :location, last_seen_at = :now,
+                    scraped_at = :scraped_at
                 WHERE id = :id
                 """,
                 params,
@@ -220,6 +235,7 @@ class Store:
                 "year": row["year"],
                 "image_urls": tuple(json.loads(row["image_urls_json"])),
                 "city": row["city"],
+                "location": row["location"],
                 "scraped_at": datetime.fromisoformat(row["scraped_at"]),
             }
         )

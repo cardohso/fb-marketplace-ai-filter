@@ -146,3 +146,50 @@ def test_export_csv(store: Store, tmp_path: Path) -> None:
     assert by_id[pending.id]["llm_is_vehicle"] == ""
 
     assert export_csv(store, out, include_non_vehicles=True) == 3
+
+
+def test_v1_database_is_migrated_in_place(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE listings (id TEXT PRIMARY KEY, url TEXT NOT NULL, title TEXT,
+            price_eur INTEGER, price_raw TEXT, description TEXT,
+            details_json TEXT NOT NULL DEFAULT '[]', kms INTEGER, fuel TEXT, gearbox TEXT,
+            year INTEGER, image_urls_json TEXT NOT NULL DEFAULT '[]', city TEXT,
+            first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, scraped_at TEXT NOT NULL);
+        CREATE TABLE schema_version (version INTEGER NOT NULL);
+        INSERT INTO schema_version VALUES (1);
+        INSERT INTO listings (id, url, first_seen_at, last_seen_at, scraped_at)
+            VALUES ('1234567890', 'u', '2026-01-01T00:00:00+00:00',
+                    '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    with Store(db) as store:
+        old = store.get_listing("1234567890")
+        assert old is not None and old.location is None
+        store.upsert_listing(make_listing(location="Odivelas, Lisboa"))
+        refreshed = store.get_listing("1234567890")
+        assert refreshed is not None and refreshed.location == "Odivelas, Lisboa"
+    version = sqlite3.connect(db).execute("SELECT version FROM schema_version").fetchone()[0]
+    assert version == 2
+
+
+def test_newer_database_is_refused(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "future.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE schema_version (version INTEGER NOT NULL);"
+        " INSERT INTO schema_version VALUES (99);"
+    )
+    conn.commit()
+    conn.close()
+    with pytest.raises(RuntimeError, match="newer"):
+        Store(db)

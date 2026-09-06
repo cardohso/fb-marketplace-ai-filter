@@ -72,10 +72,11 @@ class Listing(BaseModel):
     gearbox: Gearbox | None = None
     year: int | None = None
     image_urls: tuple[str, ...] = ()
-    city: str | None = None
+    city: str | None = Field(default=None, description="Marketplace city slug used for the run")
+    location: str | None = Field(default=None, description="Location text shown under the title")
     scraped_at: datetime = Field(default_factory=utcnow)
 
-    @field_validator("title", "price_raw", "description", mode="after")
+    @field_validator("title", "price_raw", "description", "location", mode="after")
     @classmethod
     def _strip_blank(cls, value: str | None) -> str | None:
         return _blank_to_none(value)

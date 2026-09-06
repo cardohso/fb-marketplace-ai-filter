@@ -99,7 +99,7 @@ packages = ["autosieve"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["easyocr", "easyocr.*", "responses", "responses.*"]
+module = ["easyocr", "easyocr.*", "numpy", "numpy.*", "PIL", "PIL.*", "responses", "responses.*"]
 ignore_missing_imports = true
 
 # ── pytest ───────────────────────────────────────────────────────────────────

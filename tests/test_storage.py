@@ -179,7 +179,7 @@ def test_v1_database_is_migrated_in_place(tmp_path: Path) -> None:
         refreshed = store.get_listing("1234567890")
         assert refreshed is not None and refreshed.location == "Odivelas, Lisboa"
     version = sqlite3.connect(db).execute("SELECT version FROM schema_version").fetchone()[0]
-    assert version == 2
+    assert version == 3
 
 
 def test_newer_database_is_refused(tmp_path: Path) -> None:
@@ -195,3 +195,63 @@ def test_newer_database_is_refused(tmp_path: Path) -> None:
     conn.close()
     with pytest.raises(RuntimeError, match="newer"):
         Store(db)
+
+
+def test_benchmark_cache_round_trip_and_ttl() -> None:
+    from autosieve.benchmark import Benchmark
+    from autosieve.identity import VehicleKey
+
+    key = VehicleKey(make="renault", model="clio", fuel="gasoleo")
+    b = Benchmark(
+        make="renault",
+        model="clio",
+        fuel="gasoleo",
+        year_from=2016,
+        year_to=2016,
+        median_eur=9500,
+        sample_size=40,
+        source="standvirtual",
+    )
+    with Store(":memory:") as store:
+        assert store.get_cached_benchmark(key, 2016, ttl_days=30) == (False, None)
+        store.put_cached_benchmark(key, 2016, b)
+        fresh, loaded = store.get_cached_benchmark(key, 2016, ttl_days=30)
+        assert fresh and loaded is not None and loaded.median_eur == 9500
+        # A cached miss is fresh with a None benchmark.
+        store.put_cached_benchmark(key, 2016, None)
+        assert store.get_cached_benchmark(key, 2016, ttl_days=30) == (True, None)
+        # Zero TTL makes it stale.
+        assert store.get_cached_benchmark(key, 2016, ttl_days=0) == (False, None)
+
+
+def test_v2_database_migrates_to_v3(tmp_path: Path) -> None:
+    import sqlite3
+
+    from autosieve.benchmark import Benchmark
+    from autosieve.identity import VehicleKey
+
+    db = tmp_path / "v2.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE schema_version (version INTEGER NOT NULL);"
+        " INSERT INTO schema_version VALUES (2);"
+    )
+    conn.commit()
+    conn.close()
+    with Store(db) as store:
+        key = VehicleKey(make="renault", model="clio", fuel="gasoleo")
+        store.put_cached_benchmark(
+            key,
+            2016,
+            Benchmark(
+                make="renault",
+                model="clio",
+                fuel="gasoleo",
+                year_from=2016,
+                year_to=2016,
+                median_eur=9500,
+            ),
+        )
+        assert store.get_cached_benchmark(key, 2016, ttl_days=30)[0]
+    version = sqlite3.connect(db).execute("SELECT version FROM schema_version").fetchone()[0]
+    assert version == 3

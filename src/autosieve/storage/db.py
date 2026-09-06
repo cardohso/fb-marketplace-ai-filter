@@ -12,22 +12,38 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Self
 
+from autosieve.benchmark.models import Benchmark
+from autosieve.identity import VehicleKey
 from autosieve.models import Analysis, AnalysisRecord, Listing, utcnow
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+_BENCHMARK_CACHE_DDL = """
+CREATE TABLE IF NOT EXISTS benchmark_cache (
+    make           TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    fuel           TEXT NOT NULL,
+    year           INTEGER NOT NULL,
+    benchmark_json TEXT,
+    fetched_at     TEXT NOT NULL,
+    PRIMARY KEY (make, model, fuel, year)
+)
+"""
 
 # Statements that take a database from version N to N + 1.
 _MIGRATIONS: dict[int, tuple[str, ...]] = {
     1: ("ALTER TABLE listings ADD COLUMN location TEXT",),
+    2: (_BENCHMARK_CACHE_DDL,),
 }
 
-_SCHEMA = """
+_SCHEMA = (
+    """
 CREATE TABLE IF NOT EXISTS listings (
     id              TEXT PRIMARY KEY,
     url             TEXT NOT NULL,
@@ -70,6 +86,9 @@ CREATE TABLE IF NOT EXISTS analyses (
 
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
 """
+    + _BENCHMARK_CACHE_DDL
+    + ";\n"
+)
 
 
 class UpsertOutcome(StrEnum):
@@ -311,6 +330,44 @@ class Store:
             listing = self._row_to_listing(row)
             record = self.get_analysis(listing.id) if row["a_listing_id"] else None
             yield listing, record
+
+    # ── benchmark cache ──────────────────────────────────────────────────────
+
+    def get_cached_benchmark(
+        self, key: VehicleKey, year: int, *, ttl_days: float
+    ) -> tuple[bool, Benchmark | None]:
+        """Return ``(fresh, benchmark)``.
+
+        ``fresh`` is True when a non-expired entry exists (its benchmark may be
+        None, a cached "no valuation"); False means the caller should fetch.
+        """
+        row = self._conn.execute(
+            "SELECT benchmark_json, fetched_at FROM benchmark_cache "
+            "WHERE make = ? AND model = ? AND fuel = ? AND year = ?",
+            (key.make, key.model, key.fuel or "", year),
+        ).fetchone()
+        if row is None:
+            return False, None
+        age = utcnow() - datetime.fromisoformat(row["fetched_at"])
+        if age > timedelta(days=ttl_days):
+            return False, None
+        payload = row["benchmark_json"]
+        return True, (Benchmark.model_validate_json(payload) if payload else None)
+
+    def put_cached_benchmark(self, key: VehicleKey, year: int, benchmark: Benchmark | None) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO benchmark_cache "
+                "(make, model, fuel, year, benchmark_json, fetched_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    key.make,
+                    key.model,
+                    key.fuel or "",
+                    year,
+                    benchmark.model_dump_json() if benchmark else None,
+                    _iso(utcnow()),
+                ),
+            )
 
     def counts(self) -> dict[str, int]:
         def one(sql: str) -> int:

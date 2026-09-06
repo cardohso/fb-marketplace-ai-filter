@@ -59,8 +59,22 @@ class MarketplaceBrowser:
 
     def __enter__(self) -> Self:
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(headless=self._settings.headless)
+        launch_options: dict[str, object] = {"headless": self._settings.headless}
+        if self._settings.browser_channel:
+            # Drive a system-installed Chrome/Edge instead of the bundled Chromium.
+            launch_options["channel"] = self._settings.browser_channel
+        self._browser = self._playwright.chromium.launch(**launch_options)  # type: ignore[arg-type]
         context_options: dict[str, object] = {"locale": "pt-PT"}
+        state = self._settings.fb_state_path
+        if state is not None and state.exists():
+            # Reuse a saved login so gated seller descriptions load.
+            context_options["storage_state"] = str(state)
+            log.info("Using saved Facebook session: %s", state)
+        else:
+            log.warning(
+                "No saved Facebook session; seller descriptions may be hidden. "
+                "Run `autosieve login` to sign in once."
+            )
         geo = self._settings.geolocation
         if geo is not None:
             context_options["geolocation"] = {"latitude": geo[0], "longitude": geo[1]}

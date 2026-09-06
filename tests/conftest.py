@@ -22,6 +22,8 @@ _ENV_KEYS = (
     "DB_PATH",
     "GEO_LATITUDE",
     "GEO_LONGITUDE",
+    "BROWSER_CHANNEL",
+    "FB_STATE_PATH",
 )
 
 

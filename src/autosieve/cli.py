@@ -131,6 +131,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_report_options(p_report)
     p_report.set_defaults(func=cmd_report)
 
+    p_login = sub.add_parser("login", help="sign into Facebook once and save the session")
+    p_login.set_defaults(func=cmd_login)
+
     p_status = sub.add_parser("status", help="show what the database holds")
     p_status.set_defaults(func=cmd_status)
     return parser
@@ -263,6 +266,14 @@ def cmd_export(args: argparse.Namespace, settings: Settings) -> int:
 def cmd_report(args: argparse.Namespace, settings: Settings) -> int:
     with Store(settings.db_path) as store:
         _run_report(args, store)
+    return EXIT_OK
+
+
+def cmd_login(_args: argparse.Namespace, settings: Settings) -> int:
+    from autosieve.scraper.session import save_session
+
+    path = save_session(settings)
+    print(f"Saved Facebook session -> {path}")
     return EXIT_OK
 
 

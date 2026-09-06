@@ -82,3 +82,17 @@ def test_legacy_retry_delay_name(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_overrides_beat_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NUM_VEHICLES", "3")
     assert load_settings(num_vehicles=9).num_vehicles == 9
+
+
+def test_browser_channel_and_session_defaults() -> None:
+    s = Settings()
+    assert s.browser_channel == ""
+    assert s.fb_state_path == Path("fb_state.json")
+
+
+def test_browser_channel_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BROWSER_CHANNEL", "chrome")
+    monkeypatch.setenv("FB_STATE_PATH", "session/fb.json")
+    s = Settings()
+    assert s.browser_channel == "chrome"
+    assert s.fb_state_path == Path("session/fb.json")

@@ -94,3 +94,19 @@ def test_report_command_runs_on_seed(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "scored" in printed
     assert out.exists()
     assert out.read_text(encoding="utf-8").startswith("<!doctype html>")
+
+
+def test_login_command_calls_save_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import autosieve.scraper.session as session
+
+    calls: list[object] = []
+    monkeypatch.setattr(
+        session,
+        "save_session",
+        lambda settings: (calls.append(settings), tmp_path / "fb_state.json")[1],
+    )
+    assert main(["login"]) == 0
+    assert len(calls) == 1
+    assert "Saved Facebook session" in capsys.readouterr().out

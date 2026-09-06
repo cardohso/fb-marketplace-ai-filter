@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     debug_html_dir: Path | None = Field(
         default=None, description="Save the HTML of every fetched listing here (also on failure)"
     )
+    browser_channel: str = Field(
+        default="",
+        description="Empty for bundled Chromium; 'chrome' or 'msedge' to drive a system browser",
+    )
+    fb_state_path: Path | None = Field(
+        default=Path("fb_state.json"),
+        description="Saved Facebook session (Playwright storage_state) from `autosieve login`",
+    )
 
     # ── Ollama ───────────────────────────────────────────────────────────────
     ollama_model: str = Field(default="llama3.1", min_length=1)

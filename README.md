@@ -20,7 +20,8 @@ priced below their market benchmark, from private sellers, with low mileage.
 | Odometer OCR from photos | Working, optional | EasyOCR behind the `[ocr]` extra; last resort when no mileage is found in text |
 | Storage and export | Working | SQLite keyed by listing id, price history, formula-safe CSV export |
 | Deal score and ranked report | Working | Explainable score, terminal table and HTML page |
-| Market benchmark | Seed only | Curated seed from Standvirtual's Avaliador; live scraper not built |
+| Market benchmark | Seed + live | Curated seed, or live Standvirtual Avaliador valuations (cached) |
+| Saved Facebook session | Working | Log in once so gated seller descriptions load |
 | Alerts and watchlist | Not started | Phase 3 |
 
 The HTML parser is tested against reduced copies of real listing pages captured
@@ -76,11 +77,23 @@ uv run autosieve run --limit 20           # scrape, enrich, export in one go
 Or step by step:
 
 ```powershell
+uv run autosieve login                    # sign into Facebook once (optional, recommended)
 uv run autosieve scrape --limit 20        # feed -> database
 uv run autosieve enrich                   # database -> Ollama -> database
 uv run autosieve report --report-out deals.html   # rank by deal score
 uv run autosieve export --out cars.csv    # database -> CSV
 uv run autosieve status                   # what the database holds
+```
+
+`login` opens a browser for you to sign into Facebook by hand and saves the
+session, so gated seller descriptions load on later scrapes. Your credentials go
+straight into Facebook and are never seen by AutoSieve; only the session cookies
+are saved locally (`fb_state.json`, git-ignored).
+
+Use live Standvirtual valuations instead of the seed:
+
+```powershell
+uv run autosieve report --benchmark-source standvirtual --report-out deals.html
 ```
 
 Useful flags:
@@ -95,7 +108,9 @@ Useful flags:
 | `--max N` | enrich, run | Analyse at most N listings this run |
 | `--no-ocr` | enrich, run | Never download photos or run OCR |
 | `--include-non-vehicles` | export, run | Keep listings the model classified as parts |
+| `--benchmark-source` | report, run | `seed` (default) or `standvirtual` (live, cached) |
 | `--benchmarks FILE` | report, run | Use your own benchmark JSON instead of the seed |
+| `--benchmark-ttl-days N` | report, run | How long a cached live valuation stays fresh (default 30) |
 | `--report-out FILE` | report, run | Write the ranked deals to an HTML page |
 | `--top N` | report, run | Rows to show in the terminal (default 20) |
 | `--db FILE` | all | Use a different SQLite file |
@@ -150,12 +165,19 @@ cannot be judged (no price, a placeholder price, an unknown model or year, not a
 vehicle) are reported with a status, never a made-up number, and a ratio far
 below market is flagged to verify rather than trusted.
 
-Benchmarks come from a `BenchmarkProvider`. Today that is a curated seed file
-(`src/autosieve/benchmark/data/seed_benchmarks.json`) derived from Standvirtual's
-Avaliador, covering common Portuguese models. **The seed values are placeholders
-to refresh with real data**, and coverage is deliberately small, so many
-listings will report no benchmark until you extend it or a live provider is
-added. Point `--benchmarks` at your own JSON in the same shape to override it.
+Benchmarks come from a `BenchmarkProvider`, of which there are two:
+
+- **Seed** (default): a curated JSON
+  (`src/autosieve/benchmark/data/seed_benchmarks.json`) covering common
+  Portuguese models. **The seed values are curated placeholders to refresh with
+  real data**, so many listings report no benchmark until you extend it. Point
+  `--benchmarks` at your own JSON in the same shape to override it.
+- **Standvirtual** (`--benchmark-source standvirtual`): drives Standvirtual's
+  Avaliador to value each car live, at the mileage expected for its age. Results
+  are cached in the database with a TTL, so each identity is valued once, and the
+  seed is the fallback for models Standvirtual cannot value. The valuation form
+  is site-specific and will need updates when Standvirtual changes its markup.
+  Like Marketplace scraping, automating Standvirtual is against its terms.
 
 ## How it works
 
@@ -212,10 +234,11 @@ original.
 - [x] Phase 1: package structure, validated config, typed models, tested parser,
   schema-constrained LLM output, safe OCR, SQLite store, CLI, CI
 - [x] Phase 2: vehicle identity, deal score with a cost-adjusted condition
-  multiplier, ranked terminal and HTML report, benchmark provider interface
-  with a curated seed
-- [ ] Phase 2 remaining: a live Standvirtual benchmark provider (cached, with a
-  TTL) and a broader benchmark set to lift coverage
+  multiplier, ranked terminal and HTML report, benchmark provider interface with
+  a curated seed and a live Standvirtual provider (cached, with a TTL), saved
+  Facebook session
+- [ ] Phase 2 remaining: validate the Standvirtual form against the live site,
+  broaden the seed, and improve year extraction to lift coverage
 - [ ] Phase 3: watchlist, price-drop alerts, due-diligence cards, duplicate and
   stock-photo detection
 

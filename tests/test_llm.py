@@ -187,6 +187,41 @@ def test_analyzer_wraps_validation_failure() -> None:
         ListingAnalyzer(make_client()).analyse(make_listing())
 
 
+@responses.activate
+def test_analyzer_prepends_fewshot_examples() -> None:
+    responses.add(responses.POST, CHAT, json=chat_reply({"is_vehicle": True}))
+    ListingAnalyzer(make_client()).analyse(make_listing())
+
+    messages = json.loads(responses.calls[0].request.body)["messages"]
+    assert messages[0]["role"] == "system"
+    # system + 2 example pairs + the real user turn
+    assert [m["role"] for m in messages] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+    ]
+    # The negative example must show both belt and inspection as null.
+    silent = json.loads(messages[2]["content"])
+    assert silent["maintenance"] == {"timing_belt_done": None, "ipo_ok": None}
+    # The positive example must show both asserted.
+    stated = json.loads(messages[4]["content"])
+    assert stated["maintenance"] == {"timing_belt_done": True, "ipo_ok": True}
+    # The final turn is the real listing under analysis.
+    assert "1234567890" not in messages[-1]["content"]
+    assert "Renault Clio 1.5 dCi 2019" in messages[-1]["content"]
+
+
+@responses.activate
+def test_analyzer_fewshot_can_be_disabled() -> None:
+    responses.add(responses.POST, CHAT, json=chat_reply({"is_vehicle": True}))
+    ListingAnalyzer(make_client(), use_fewshot=False).analyse(make_listing())
+    messages = json.loads(responses.calls[0].request.body)["messages"]
+    assert [m["role"] for m in messages] == ["system", "user"]
+
+
 # ── prompt building ──────────────────────────────────────────────────────────
 
 

@@ -200,6 +200,7 @@ def enrich(
     odometer: KmsReader | None = None,
     image_fetch: Callable[[str], bytes] | None = None,
     retry_failed: bool = False,
+    reanalyse: bool = False,
     limit: int | None = None,
 ) -> EnrichSummary:
     """Analyse every listing that lacks a current analysis and store the result.
@@ -208,7 +209,9 @@ def enrich(
     the same dead endpoint for every listing would only waste time.
     """
     started = time.monotonic()
-    pending = store.listings_pending_analysis(analyzer.model, retry_failed=retry_failed)
+    pending = store.listings_pending_analysis(
+        analyzer.model, retry_failed=retry_failed, force=reanalyse
+    )
     if limit is not None:
         pending = pending[:limit]
     summary = EnrichSummary(pending=len(pending))

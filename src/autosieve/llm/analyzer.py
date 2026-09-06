@@ -7,7 +7,7 @@ import logging
 from pydantic import ValidationError
 
 from autosieve.llm.client import LlmError, OllamaClient
-from autosieve.llm.prompts import SYSTEM_PROMPT, build_user_message
+from autosieve.llm.prompts import SYSTEM_PROMPT, build_fewshot_messages, build_user_message
 from autosieve.models import Analysis, Listing
 
 log = logging.getLogger(__name__)
@@ -18,9 +18,10 @@ class AnalysisError(LlmError):
 
 
 class ListingAnalyzer:
-    def __init__(self, client: OllamaClient) -> None:
+    def __init__(self, client: OllamaClient, *, use_fewshot: bool = True) -> None:
         self._client = client
         self._schema = Analysis.ollama_schema()
+        self._examples = build_fewshot_messages() if use_fewshot else None
 
     @property
     def model(self) -> str:
@@ -31,6 +32,7 @@ class ListingAnalyzer:
             system=SYSTEM_PROMPT,
             user=build_user_message(listing),
             schema=self._schema,
+            examples=self._examples,
         )
         try:
             return Analysis.model_validate(data)

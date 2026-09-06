@@ -56,6 +56,11 @@ def _add_enrich_options(parser: argparse.ArgumentParser) -> None:
         "--retry-failed", action="store_true", help="re-analyse listings whose last attempt failed"
     )
     parser.add_argument(
+        "--reanalyse",
+        action="store_true",
+        help="re-analyse every stored listing (use after a prompt or model change)",
+    )
+    parser.add_argument(
         "--max", dest="enrich_limit", type=int, metavar="N", help="analyse at most N listings"
     )
     parser.add_argument("--no-ocr", action="store_true", help="never read odometers from photos")
@@ -167,6 +172,7 @@ def _run_enrich(args: argparse.Namespace, settings: Settings, store: Store) -> E
         odometer=odometer,
         image_fetch=fetch,
         retry_failed=args.retry_failed,
+        reanalyse=args.reanalyse,
         limit=args.enrich_limit,
     )
 

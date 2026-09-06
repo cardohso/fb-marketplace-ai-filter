@@ -116,18 +116,27 @@ class OllamaClient:
             )
         return models
 
-    def chat_json(self, *, system: str, user: str, schema: dict[str, object]) -> dict[str, Any]:
+    def chat_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        schema: dict[str, object],
+        examples: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         """One chat turn whose output Ollama constrains to ``schema``. Returns the parsed object.
 
-        Transport errors and 5xx responses are retried. A 4xx or an unparseable
-        body is a programming or model problem and is raised immediately.
+        ``examples`` are prior user/assistant turns inserted after the system
+        prompt for few-shot conditioning. Transport errors and 5xx responses are
+        retried. A 4xx or an unparseable body is a programming or model problem
+        and is raised immediately.
         """
+        messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+        messages.extend(examples or [])
+        messages.append({"role": "user", "content": user})
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            "messages": messages,
             "stream": False,
             "format": schema,
             "options": {"temperature": 0, "num_ctx": self.num_ctx},

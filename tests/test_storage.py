@@ -73,6 +73,8 @@ def test_pending_analysis_logic(store: Store) -> None:
     assert [x.id for x in store.listings_pending_analysis("llama3.1", retry_failed=True)] == [b.id]
     # A different model means every listing needs a fresh analysis.
     assert len(store.listings_pending_analysis("qwen2.5")) == 2
+    # force ignores existing analyses entirely, for re-running after a prompt change.
+    assert [x.id for x in store.listings_pending_analysis("llama3.1", force=True)] == [a.id, b.id]
 
 
 def test_analysis_round_trip_and_counts(store: Store) -> None:

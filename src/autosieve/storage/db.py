@@ -205,8 +205,19 @@ class Store:
         ).fetchall()
         return [(datetime.fromisoformat(r["observed_at"]), r["price_eur"]) for r in rows]
 
-    def listings_pending_analysis(self, model: str, *, retry_failed: bool = False) -> list[Listing]:
-        """Listings with no analysis by ``model``, plus failed ones when asked."""
+    def listings_pending_analysis(
+        self, model: str, *, retry_failed: bool = False, force: bool = False
+    ) -> list[Listing]:
+        """Listings with no analysis by ``model``, plus failed ones when asked.
+
+        ``force`` returns every listing regardless of analysis state, for
+        re-running after a prompt or model change.
+        """
+        if force:
+            rows = self._conn.execute(
+                "SELECT * FROM listings ORDER BY first_seen_at, id"
+            ).fetchall()
+            return [self._row_to_listing(r) for r in rows]
         sql = """
             SELECT l.* FROM listings l
             LEFT JOIN analyses a ON a.listing_id = l.id

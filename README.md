@@ -23,10 +23,11 @@ priced below their market benchmark, from private sellers, with low mileage.
 | Deal score and ranked report | Not started | Phase 2 |
 | Alerts and watchlist | Not started | Phase 3 |
 
-The HTML parser was built against the page structure observed in March 2026 and
-synthetic fixtures derived from it. Facebook changes its markup often. When a run
-reports listings as *incomplete*, rerun with `--debug-html` and use the saved
-pages to update the parser and its fixtures.
+The HTML parser is tested against reduced copies of real listing pages captured
+in September 2026 (`tests/fixtures/live_*.html`) plus synthetic fixtures for
+layouts not yet seen live. Facebook changes its markup often. When a run reports
+listings as *incomplete*, rerun with `--debug-html` and turn the saved pages into
+fixtures with `scripts/make_fixture.py`.
 
 ## Before you run it
 
@@ -164,8 +165,16 @@ Tests never touch Facebook or Ollama: the parser runs against HTML fixtures in
 `tests/fixtures/`, and HTTP is mocked with `responses`. CI runs the same checks on
 Python 3.12, 3.13 and 3.14.
 
-To capture new fixtures, run a scrape with `--debug-html tests/fixtures/raw`,
-strip anything personal from the saved page, and add a test.
+To capture new fixtures, run a scrape with `--debug-html debug_html`, then reduce
+a saved page to a small faithful fixture and review it before committing:
+
+```powershell
+uv run python scripts/make_fixture.py debug_html/<id>.html tests/fixtures/live_<name>.html
+```
+
+The script keeps only the visible text, headings and image tags the parser reads,
+and checks that the reduced page yields exactly the same text lines as the
+original.
 
 ## Roadmap
 

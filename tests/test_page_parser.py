@@ -31,6 +31,7 @@ def test_full_listing(fixtures_dir: Path) -> None:
     assert "Ver mais" not in listing.description
     assert "Descrição do vendedor" not in listing.description
     assert listing.city == "lisbon"
+    assert listing.location == "Lisboa, Portugal"
     assert listing.is_complete
 
 

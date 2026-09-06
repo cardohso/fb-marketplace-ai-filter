@@ -40,7 +40,12 @@ class Benchmark(BaseModel):
         )
 
     def covers_year(self, year: int | None) -> bool:
-        """A benchmark with no year filter (open band) matches any year."""
+        """Match only a known year inside the band.
+
+        An unknown year is not matched: valuing a car against a specific age
+        band without knowing its age produces wildly wrong ratios (a 2001 model
+        matched to a 2015 benchmark looks like a 6x bargain).
+        """
         if year is None:
-            return True
+            return False
         return self.year_from <= year <= self.year_to

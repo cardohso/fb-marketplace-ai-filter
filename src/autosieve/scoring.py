@@ -25,6 +25,10 @@ KM_PER_YEAR = 15_000
 # A price below this share of the benchmark median is a placeholder, not an offer.
 PLACEHOLDER_PRICE_RATIO = 0.15
 PLACEHOLDER_PRICE_FLOOR = 200
+# A ratio above this is almost always a mismatch (wrong variant, salvage, bad
+# data), not a genuine bargain, so it is flagged and its confidence is capped.
+SUSPICIOUS_RATIO = 2.2
+SUSPICIOUS_CONFIDENCE_CAP = 0.35
 
 
 class ScoreStatus(StrEnum):
@@ -157,13 +161,17 @@ def score_from_parts(
 
     base_ratio = benchmark.median_eur / listing.price_eur
     multiplier, reasons = _condition_multiplier(analysis, kms, resolved.year, reference_year)
+    confidence = _confidence(benchmark, resolved)
+    if base_ratio > SUSPICIOUS_RATIO:
+        confidence = min(confidence, SUSPICIOUS_CONFIDENCE_CAP)
+        reasons.insert(0, "far below market — verify (salvage, wrong variant, or missing detail)")
     return base.model_copy(
         update={
             "benchmark_median": benchmark.median_eur,
             "base_ratio": round(base_ratio, 3),
             "condition_multiplier": round(multiplier, 3),
             "score": round(base_ratio * multiplier, 3),
-            "confidence": _confidence(benchmark, resolved),
+            "confidence": confidence,
             "reasons": reasons,
         }
     )

@@ -147,3 +147,26 @@ def test_score_listing_unknown_model_has_no_benchmark() -> None:
     unknown = Analysis(is_vehicle=True, vehicle=VehicleIdentity(make="Lada", model="Niva"))
     result = score_listing(listing(title="Lada Niva"), unknown, provider, reference_year=REF)
     assert result.status is ScoreStatus.NO_BENCHMARK
+
+
+def test_unknown_year_is_not_scored_against_a_band() -> None:
+    # No year on the page or from the model: valuing against a specific age band
+    # would produce a wild ratio, so there is effectively no benchmark.
+    provider = SeedBenchmarkProvider([bench()])
+    no_year = Listing(
+        id="9999999999",
+        url="https://www.facebook.com/marketplace/item/9999999999/",
+        title="Renault Clio",
+        price_eur=2750,
+    )
+    a = Analysis(is_vehicle=True, vehicle=VehicleIdentity(make="Renault", model="Clio"))
+    result = score_listing(no_year, a, provider, reference_year=REF)
+    assert result.status is ScoreStatus.NO_BENCHMARK
+
+
+def test_suspicious_ratio_is_flagged_and_confidence_capped() -> None:
+    # An in-band match priced far below market: kept but flagged, not trusted.
+    result = score(listing(price_eur=2500), analysis(), bench(median_eur=9500, sample_size=50))
+    assert result.base_ratio > 2.2
+    assert result.confidence <= 0.35
+    assert any("far below market" in r for r in result.reasons)

@@ -37,7 +37,7 @@ def test_covers_year() -> None:
     b = bench()
     assert b.covers_year(2015)
     assert not b.covers_year(2011)
-    assert b.covers_year(None)  # unknown year matches any band
+    assert not b.covers_year(None)  # unknown year is not valued against a band
 
 
 def test_lookup_matches_make_model_year() -> None:

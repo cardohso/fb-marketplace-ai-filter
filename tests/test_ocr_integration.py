@@ -49,3 +49,15 @@ def test_returns_none_when_no_plausible_reading() -> None:
     images = {"blank.png": _dashboard_png("Service due", "", "120")}
     reader = OdometerReader()
     assert reader.read_kms(["blank.png"], fetch=lambda url: images[url]) is None
+
+
+def test_dhash_distinguishes_similar_from_different_images() -> None:
+    from autosieve.duplicates import hamming, image_dhash
+
+    base = _dashboard_png("187432 km", "312 km", "120")
+    near = _dashboard_png("187432 km", "312 km", "121")  # tiny change
+    far = _dashboard_png("Service due", "", "80")
+
+    h_base, h_near, h_far = image_dhash(base), image_dhash(near), image_dhash(far)
+    assert hamming(h_base, h_near) <= 6  # basically the same picture
+    assert hamming(h_base, h_far) > hamming(h_base, h_near)

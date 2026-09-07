@@ -185,6 +185,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_watch_remove.add_argument("name", help="watch name to remove")
     p_watch_remove.set_defaults(func=cmd_watch_remove)
 
+    p_dupes = sub.add_parser(
+        "duplicates", help="find listings sharing the same photo (reposts, stock photos)"
+    )
+    p_dupes.add_argument(
+        "--max-distance", type=int, default=6, help="image similarity threshold (lower is stricter)"
+    )
+    p_dupes.add_argument("--max-images", type=int, default=4, help="images to hash per listing")
+    p_dupes.set_defaults(func=cmd_duplicates)
+
     p_login = sub.add_parser("login", help="sign into Facebook once and save the session")
     p_login.set_defaults(func=cmd_login)
 
@@ -445,6 +454,51 @@ def cmd_watch_remove(args: argparse.Namespace, settings: Settings) -> int:
         return EXIT_FAILURE
     save_watches(kept, settings.watches_path)
     print(f"Removed watch {args.name!r}")
+    return EXIT_OK
+
+
+def cmd_duplicates(args: argparse.Namespace, settings: Settings) -> int:
+    from autosieve.duplicates import (
+        DuplicatesUnavailableError,
+        duplicate_groups,
+        image_dhash,
+    )
+    from autosieve.ocr import ImageDownloadError, ImagePolicy, download_image
+
+    policy = ImagePolicy.from_settings(settings)
+    session = requests.Session()
+    with Store(settings.db_path) as store:
+        hashed = 0
+        for listing, _record in store.iter_listings_with_analysis():
+            if store.has_image_hashes(listing.id) or not listing.image_urls:
+                continue
+            hashes: list[int] = []
+            for url in listing.image_urls[: args.max_images]:
+                try:
+                    data = download_image(url, policy, session)
+                    hashes.append(image_dhash(data))
+                except ImageDownloadError:
+                    continue
+                except DuplicatesUnavailableError as exc:
+                    print(f"Error: {exc}", file=sys.stderr)
+                    return EXIT_FAILURE
+            store.save_image_hashes(listing.id, hashes)
+            hashed += 1
+        if hashed:
+            print(f"Hashed images for {hashed} listing(s)")
+
+        groups = duplicate_groups(store.all_image_hashes(), max_distance=args.max_distance)
+        if not groups:
+            print("No listings share a photo.")
+            return EXIT_OK
+        print(f"{len(groups)} group(s) of listings sharing a photo:")
+        for group in groups:
+            print("  ---")
+            for listing_id in group:
+                found = store.get_listing(listing_id)
+                title = found.title if found else "?"
+                price = f"{found.price_eur} €" if found and found.price_eur else "?"
+                print(f"    {title} | {price} | {found.url if found else listing_id}")
     return EXIT_OK
 
 

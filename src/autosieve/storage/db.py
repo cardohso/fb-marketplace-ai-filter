@@ -23,7 +23,7 @@ from autosieve.benchmark.models import Benchmark
 from autosieve.identity import VehicleKey
 from autosieve.models import Analysis, AnalysisRecord, Listing, utcnow
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _BENCHMARK_CACHE_DDL = """
 CREATE TABLE IF NOT EXISTS benchmark_cache (
@@ -48,11 +48,21 @@ CREATE TABLE IF NOT EXISTS watch_state (
 )
 """
 
+_IMAGE_HASH_DDL = """
+CREATE TABLE IF NOT EXISTS image_hashes (
+    listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+    idx        INTEGER NOT NULL,
+    phash      INTEGER NOT NULL,
+    PRIMARY KEY (listing_id, idx)
+)
+"""
+
 # Statements that take a database from version N to N + 1.
 _MIGRATIONS: dict[int, tuple[str, ...]] = {
     1: ("ALTER TABLE listings ADD COLUMN location TEXT",),
     2: (_BENCHMARK_CACHE_DDL,),
     3: (_WATCH_STATE_DDL,),
+    4: (_IMAGE_HASH_DDL,),
 }
 
 _SCHEMA = (
@@ -102,6 +112,8 @@ CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
     + _BENCHMARK_CACHE_DDL
     + ";\n"
     + _WATCH_STATE_DDL
+    + ";\n"
+    + _IMAGE_HASH_DDL
     + ";\n"
 )
 
@@ -432,6 +444,32 @@ class Store:
                     "alerted": alerted_at,
                 },
             )
+
+    # ── image hashes (duplicate detection) ───────────────────────────────────
+
+    def save_image_hashes(self, listing_id: str, hashes: list[int]) -> None:
+        """Replace the stored perceptual hashes for a listing's images."""
+        with self._conn:
+            self._conn.execute("DELETE FROM image_hashes WHERE listing_id = ?", (listing_id,))
+            self._conn.executemany(
+                "INSERT INTO image_hashes (listing_id, idx, phash) VALUES (?, ?, ?)",
+                [(listing_id, i, h) for i, h in enumerate(hashes)],
+            )
+
+    def has_image_hashes(self, listing_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM image_hashes WHERE listing_id = ? LIMIT 1", (listing_id,)
+        ).fetchone()
+        return row is not None
+
+    def all_image_hashes(self) -> dict[str, list[int]]:
+        rows = self._conn.execute(
+            "SELECT listing_id, phash FROM image_hashes ORDER BY listing_id, idx"
+        ).fetchall()
+        result: dict[str, list[int]] = {}
+        for row in rows:
+            result.setdefault(row["listing_id"], []).append(int(row["phash"]))
+        return result
 
     def counts(self) -> dict[str, int]:
         def one(sql: str) -> int:

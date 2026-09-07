@@ -27,6 +27,9 @@ class Watch(BaseModel):
     price_min: int | None = Field(default=None, ge=0)
     price_max: int | None = Field(default=None, ge=0)
     km_max: int | None = Field(default=None, ge=0)
+    max_distance_km: int | None = Field(
+        default=None, ge=0, description="Exclude listings farther than this from the origin (Faro)"
+    )
     fuel: Fuel | None = None
     gearbox: Gearbox | None = None
     private_only: bool = Field(default=False, description="Exclude sellers flagged as dealers")
@@ -64,6 +67,8 @@ class Watch(BaseModel):
             parts.append(f"<={self.price_max}€")
         if self.km_max:
             parts.append(f"<={self.km_max:,}km".replace(",", "."))
+        if self.max_distance_km:
+            parts.append(f"<={self.max_distance_km}km away")
         if self.fuel:
             parts.append(self.fuel)
         if self.private_only:

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from autosieve.benchmark import BenchmarkProvider
+from autosieve.geo import distance_from
 from autosieve.identity import resolve_identity
 from autosieve.models import Analysis, Listing
 from autosieve.scoring import DealScore, ScoreStatus, score_listing
@@ -61,13 +62,23 @@ def _row(listing: Listing, analysis: Analysis | None, score: DealScore) -> Repor
 
 
 def build_report(
-    store: Store, provider: BenchmarkProvider, *, reference_year: int | None = None
+    store: Store,
+    provider: BenchmarkProvider,
+    *,
+    reference_year: int | None = None,
+    origin: tuple[float, float] | None = None,
 ) -> Report:
-    """Score every stored listing and rank scored ones best-first."""
+    """Score every stored listing and rank scored ones best-first.
+
+    ``origin`` enables distance-to-origin weighting in the score.
+    """
     rows: list[ReportRow] = []
     for listing, record in store.iter_listings_with_analysis():
         analysis = record.analysis if record else None
-        score = score_listing(listing, analysis, provider, reference_year=reference_year)
+        distance = distance_from(listing.location, origin) if origin is not None else None
+        score = score_listing(
+            listing, analysis, provider, reference_year=reference_year, distance_km=distance
+        )
         rows.append(_row(listing, analysis, score))
 
     # Best deal first; confidence breaks ties. Unscored listings sink to the end.
@@ -93,14 +104,19 @@ def _fmt_km(value: int | None) -> str:
     return f"{value:,}".replace(",", ".") if value is not None else "-"
 
 
+def _fmt_dist(value: float | None) -> str:
+    return f"{value:.0f}km" if value is not None else "-"
+
+
 def render_terminal(report: Report, *, top: int = 20) -> str:
     lines: list[str] = []
     scored = report.scored[:top]
     if scored:
         lines.append(
-            f"{'#':>2}  {'score':>5} {'conf':>4}  {'price':>8} {'market':>8}  {'km':>7}  vehicle"
+            f"{'#':>2}  {'score':>5} {'conf':>4}  {'price':>8} {'market':>8}  "
+            f"{'km':>7} {'dist':>6}  vehicle"
         )
-        lines.append("-" * 78)
+        lines.append("-" * 84)
         for rank, row in enumerate(scored, start=1):
             s = row.score
             vehicle = " ".join(filter(None, [row.make, row.model, str(row.year or "")])).strip()
@@ -108,7 +124,7 @@ def render_terminal(report: Report, *, top: int = 20) -> str:
             lines.append(
                 f"{rank:>2}  {s.score:>5.2f} {s.confidence:>4.2f}  "
                 f"{_fmt_eur(s.price_eur):>8} {_fmt_eur(s.benchmark_median):>8}  "
-                f"{_fmt_km(s.kms):>7}  {vehicle[:32]}{flag}"
+                f"{_fmt_km(s.kms):>7} {_fmt_dist(s.distance_km):>6}  {vehicle[:30]}{flag}"
             )
     else:
         lines.append("No listings could be scored yet.")

@@ -29,6 +29,11 @@ PLACEHOLDER_PRICE_FLOOR = 200
 # data), not a genuine bargain, so it is flagged and its confidence is capped.
 SUSPICIOUS_RATIO = 2.2
 SUSPICIOUS_CONFIDENCE_CAP = 0.35
+# Distance from the origin (Faro) below which a car carries no travel penalty.
+FREE_DISTANCE_KM = 60.0
+# Penalty per 100 km beyond the free radius, and the most it can ever take off.
+DISTANCE_PENALTY_PER_100KM = 0.05
+MAX_DISTANCE_PENALTY = 0.15
 
 
 class ScoreStatus(StrEnum):
@@ -49,6 +54,7 @@ class DealScore(BaseModel):
     confidence: float = Field(default=0.0, ge=0, le=1)
     is_dealer: bool | None = None
     kms: int | None = None
+    distance_km: float | None = Field(default=None, description="Distance from the origin (Faro)")
     reasons: list[str] = Field(default_factory=list)
 
     @property
@@ -78,8 +84,21 @@ def _mileage_factor(
     return 1.0, None
 
 
+def _distance_factor(distance_km: float | None) -> tuple[float, str | None]:
+    """Weight a deal down the further the car is from the origin (travel cost)."""
+    if distance_km is None or distance_km <= FREE_DISTANCE_KM:
+        return 1.0, None
+    over = distance_km - FREE_DISTANCE_KM
+    factor = max(1 - MAX_DISTANCE_PENALTY, 1 - (over / 100) * DISTANCE_PENALTY_PER_100KM)
+    return factor, f"{distance_km:.0f} km away: {factor - 1:+.0%}"
+
+
 def _condition_multiplier(
-    analysis: Analysis | None, kms: int | None, year: int | None, reference_year: int
+    analysis: Analysis | None,
+    kms: int | None,
+    year: int | None,
+    reference_year: int,
+    distance_km: float | None,
 ) -> tuple[float, list[str]]:
     """Multiplicative, explainable adjustments from the grounded analysis fields."""
     multiplier = 1.0
@@ -110,6 +129,10 @@ def _condition_multiplier(
     if reason is not None:
         apply(factor, reason)
 
+    distance_f, distance_reason = _distance_factor(distance_km)
+    if distance_reason is not None:
+        apply(distance_f, distance_reason)
+
     return multiplier, reasons
 
 
@@ -126,11 +149,13 @@ def score_from_parts(
     *,
     kms: int | None,
     reference_year: int,
+    distance_km: float | None = None,
 ) -> DealScore:
     """Compute a :class:`DealScore` from already-resolved parts (no provider call).
 
     ``kms`` is the authoritative mileage after all sources (details, prose, LLM,
     OCR); the caller resolves it so the score matches what was stored.
+    ``distance_km`` is the distance from the origin, used to weight the deal.
     """
     base = DealScore(
         listing_id=listing.id,
@@ -138,6 +163,7 @@ def score_from_parts(
         price_eur=listing.price_eur,
         is_dealer=analysis.is_dealer if analysis else None,
         kms=kms,
+        distance_km=distance_km,
     )
 
     if analysis is not None and not analysis.is_vehicle:
@@ -160,7 +186,9 @@ def score_from_parts(
         )
 
     base_ratio = benchmark.median_eur / listing.price_eur
-    multiplier, reasons = _condition_multiplier(analysis, kms, resolved.year, reference_year)
+    multiplier, reasons = _condition_multiplier(
+        analysis, kms, resolved.year, reference_year, distance_km
+    )
     confidence = _confidence(benchmark, resolved)
     if base_ratio > SUSPICIOUS_RATIO:
         confidence = min(confidence, SUSPICIOUS_CONFIDENCE_CAP)
@@ -183,6 +211,7 @@ def score_listing(
     provider: BenchmarkProvider,
     *,
     reference_year: int | None = None,
+    distance_km: float | None = None,
 ) -> DealScore:
     """Resolve identity, look up a benchmark, and score one listing."""
     ref = reference_year if reference_year is not None else _reference_year()
@@ -190,4 +219,6 @@ def score_listing(
     key = resolved.key
     benchmark = provider.lookup(key, resolved.year) if key is not None else None
     kms, _ = resolve_kms(listing, analysis, None)
-    return score_from_parts(listing, analysis, resolved, benchmark, kms=kms, reference_year=ref)
+    return score_from_parts(
+        listing, analysis, resolved, benchmark, kms=kms, reference_year=ref, distance_km=distance_km
+    )

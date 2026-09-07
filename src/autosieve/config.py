@@ -90,6 +90,14 @@ class Settings(BaseSettings):
     image_allowed_host_suffixes: tuple[str, ...] = ("fbcdn.net", "facebook.com")
     image_timeout_s: float = Field(default=15.0, gt=0)
 
+    # ── Deal origin (distance weighting) ─────────────────────────────────────
+    origin_latitude: float = Field(default=37.0194, ge=-90, le=90, description="Faro by default")
+    origin_longitude: float = Field(default=-7.9322, ge=-180, le=180)
+
+    @property
+    def origin(self) -> tuple[float, float]:
+        return (self.origin_latitude, self.origin_longitude)
+
     # ── Storage ──────────────────────────────────────────────────────────────
     db_path: Path = Path("autosieve.db")
     export_dir: Path = Path()

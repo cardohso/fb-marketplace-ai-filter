@@ -89,6 +89,7 @@ def _add_watch_add_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--price-min", type=int)
     parser.add_argument("--price-max", type=int)
     parser.add_argument("--km-max", type=int)
+    parser.add_argument("--max-distance-km", type=int, help="exclude listings farther than this")
     parser.add_argument("--fuel", choices=("gasolina", "gasoleo", "hibrido", "eletrico", "gpl"))
     parser.add_argument("--gearbox", choices=("manual", "automatica"))
     parser.add_argument("--private-only", action="store_true", help="exclude dealers")
@@ -285,7 +286,7 @@ def _render_report(args: argparse.Namespace, report: object) -> None:
 def _run_report(args: argparse.Namespace, settings: Settings, store: Store) -> None:
     seed = _seed_provider(args)
     if getattr(args, "benchmark_source", "seed") != "standvirtual":
-        _render_report(args, build_report(store, seed))
+        _render_report(args, build_report(store, seed, origin=settings.origin))
         return
 
     # Live valuations, cached in the store, with the seed as a fallback for
@@ -302,7 +303,7 @@ def _run_report(args: argparse.Namespace, settings: Settings, store: Store) -> N
         )
         cached = CachedBenchmarkProvider(live, store, ttl_days=args.benchmark_ttl_days)
         provider = LayeredBenchmarkProvider([cached, seed])
-        report = build_report(store, provider)
+        report = build_report(store, provider, origin=settings.origin)
     _render_report(args, report)
 
 
@@ -373,14 +374,15 @@ def cmd_poll(args: argparse.Namespace, settings: Settings) -> int:
 
         provider = _seed_provider(args)
 
-        def score_of(listing: object, analysis: object) -> object:
-            return score_listing(listing, analysis, provider)  # type: ignore[arg-type]
+        def score_of(listing: object, analysis: object, distance: float | None) -> object:
+            return score_listing(listing, analysis, provider, distance_km=distance)  # type: ignore[arg-type]
 
         events = detect_events(
             store,
             watches,
             new_ids=set(scrape_summary.new_ids),
             score_of=score_of,  # type: ignore[arg-type]
+            origin=settings.origin,
             persist=not args.dry_run,
         )
 
@@ -412,6 +414,7 @@ def cmd_watch_add(args: argparse.Namespace, settings: Settings) -> int:
         price_min=args.price_min,
         price_max=args.price_max,
         km_max=args.km_max,
+        max_distance_km=args.max_distance_km,
         fuel=args.fuel,
         gearbox=args.gearbox,
         private_only=args.private_only,

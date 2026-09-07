@@ -145,3 +145,11 @@ def test_non_vehicle_never_matches() -> None:
     parts = Analysis(is_vehicle=False, vehicle=VehicleIdentity(make="Renault", model="Clio"))
     assert not watch_matches(clio_watch(), listing(), parts).matched
     assert not watch_matches(Watch(name="any"), listing(), parts).matched
+
+
+def test_max_distance_km_excludes_far_listings() -> None:
+    w = clio_watch(max_distance_km=100)
+    assert not watch_matches(w, listing(), analysis(), distance_km=250).matched
+    assert watch_matches(w, listing(), analysis(), distance_km=30).matched
+    # Unknown distance does not exclude.
+    assert watch_matches(w, listing(), analysis(), distance_km=None).matched

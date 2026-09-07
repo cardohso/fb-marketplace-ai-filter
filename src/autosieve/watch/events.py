@@ -17,13 +17,14 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from autosieve.geo import distance_from
 from autosieve.models import Analysis, Listing
 from autosieve.scoring import DealScore
 from autosieve.storage import Store
 from autosieve.watch.matcher import watch_matches
 from autosieve.watch.models import Watch
 
-ScoreOf = Callable[[Listing, Analysis | None], DealScore | None]
+ScoreOf = Callable[[Listing, Analysis | None, float | None], DealScore | None]
 
 DEFAULT_DROP_MIN_EUR = 200
 DEFAULT_DROP_MIN_PCT = 0.03
@@ -61,12 +62,14 @@ def detect_events(
     *,
     new_ids: set[str],
     score_of: ScoreOf | None = None,
+    origin: tuple[float, float] | None = None,
     persist: bool = True,
 ) -> list[AlertEvent]:
     """Find alert events across all watches and update watch state.
 
-    ``new_ids`` are the listing ids added to the store in this run. ``persist``
-    False evaluates without writing state, for a dry run.
+    ``new_ids`` are the listing ids added to the store in this run. ``origin``
+    enables distance filtering and weighting. ``persist`` False evaluates
+    without writing state, for a dry run.
     """
     events: list[AlertEvent] = []
     active = [w for w in watches if w.enabled]
@@ -75,9 +78,10 @@ def detect_events(
 
     for listing, record in store.iter_listings_with_analysis():
         analysis = record.analysis if record else None
-        score = score_of(listing, analysis) if score_of is not None else None
+        distance = distance_from(listing.location, origin) if origin is not None else None
+        score = score_of(listing, analysis, distance) if score_of is not None else None
         for watch in active:
-            if not watch_matches(watch, listing, analysis, score).matched:
+            if not watch_matches(watch, listing, analysis, score, distance).matched:
                 continue
             state = store.get_watch_state(watch.name, listing.id)
             if state is None:

@@ -13,6 +13,7 @@ import json
 from dataclasses import dataclass
 from importlib import resources
 
+from autosieve.geo.distance import haversine_km
 from autosieve.parsing.normalize import fold
 
 DATA_RESOURCE = "pt_places.json"
@@ -63,3 +64,11 @@ def default_gazetteer() -> Gazetteer:
 def geocode(location: str | None, gazetteer: Gazetteer | None = None) -> tuple[float, float] | None:
     """Coordinates for a location string, or None if nothing matched."""
     return (gazetteer or default_gazetteer()).resolve(location)
+
+
+def distance_from(
+    location: str | None, origin: tuple[float, float], gazetteer: Gazetteer | None = None
+) -> float | None:
+    """Distance in km from ``origin`` to the listing location, or None if unknown."""
+    coords = geocode(location, gazetteer)
+    return haversine_km(coords, origin) if coords is not None else None

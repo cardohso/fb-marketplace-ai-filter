@@ -31,7 +31,10 @@ def format_event(event: AlertEvent) -> str:
     if event.kind is AlertKind.NEW:
         lines.append(_eur(event.price_eur))
 
-    facts = [f for f in (str(listing.year) if listing.year else None, listing.location) if f]
+    location = listing.location
+    if event.score is not None and event.score.distance_km is not None:
+        location = f"{location or '?'} ({event.score.distance_km:.0f} km away)"
+    facts = [f for f in (str(listing.year) if listing.year else None, location) if f]
     if facts:
         lines.append(" · ".join(facts))
 

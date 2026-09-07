@@ -170,3 +170,45 @@ def test_suspicious_ratio_is_flagged_and_confidence_capped() -> None:
     assert result.base_ratio > 2.2
     assert result.confidence <= 0.35
     assert any("far below market" in r for r in result.reasons)
+
+
+def test_distance_penalty_reduces_score() -> None:
+    near = score(listing(kms=None), analysis(), bench())
+    far = resolve_identity(listing(kms=None), analysis())
+    far_score = score_from_parts(
+        listing(kms=None), analysis(), far, bench(), kms=None, reference_year=REF, distance_km=300
+    )
+    assert far_score.distance_km == 300
+    assert far_score.condition_multiplier < 1.0
+    assert far_score.score < near.score
+    assert any("300 km away" in r for r in far_score.reasons)
+
+
+def test_distance_within_free_radius_has_no_penalty() -> None:
+    resolved = resolve_identity(listing(kms=None), analysis())
+    result = score_from_parts(
+        listing(kms=None),
+        analysis(),
+        resolved,
+        bench(),
+        kms=None,
+        reference_year=REF,
+        distance_km=40,
+    )
+    assert result.condition_multiplier == 1.0
+    assert result.distance_km == 40
+
+
+def test_distance_penalty_is_capped() -> None:
+    resolved = resolve_identity(listing(kms=None), analysis())
+    result = score_from_parts(
+        listing(kms=None),
+        analysis(),
+        resolved,
+        bench(),
+        kms=None,
+        reference_year=REF,
+        distance_km=2000,
+    )
+    # Never takes off more than 15%.
+    assert result.condition_multiplier >= 0.85

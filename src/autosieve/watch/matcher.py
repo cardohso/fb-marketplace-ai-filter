@@ -43,8 +43,13 @@ def watch_matches(
     listing: Listing,
     analysis: Analysis | None,
     score: DealScore | None = None,
+    distance_km: float | None = None,
 ) -> MatchResult:
-    """Whether ``listing`` satisfies ``watch``. ``score`` is only needed for min_score."""
+    """Whether ``listing`` satisfies ``watch``.
+
+    ``score`` is only needed for min_score, ``distance_km`` only for
+    max_distance_km. An unknown distance does not exclude a listing.
+    """
     if not watch.enabled:
         return MatchResult(False, "watch disabled")
 
@@ -75,6 +80,13 @@ def watch_matches(
     kms, _ = resolve_kms(listing, analysis, None)
     if kms is not None and watch.km_max is not None and kms > watch.km_max:
         return MatchResult(False, "over km_max")
+
+    if (
+        watch.max_distance_km is not None
+        and distance_km is not None
+        and distance_km > watch.max_distance_km
+    ):
+        return MatchResult(False, "too far")
 
     if watch.fuel is not None and resolved.fuel is not None and resolved.fuel != watch.fuel:
         return MatchResult(False, "fuel differs")

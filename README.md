@@ -207,7 +207,10 @@ A score above 1.0 means the car is priced below what its identity normally
 fetches. The condition multiplier stacks explainable adjustments: a dealer,
 accident history, paint issues or a pending IUC each reduce it; a valid
 inspection or a done timing belt add a little; mileage that is high or low for
-the car's age nudges it. Every adjustment is shown as a reason. Listings that
+the car's age nudges it; and **distance from the origin (Faro by default)
+reduces it**, since a car far away costs time and fuel to see and collect. Every
+adjustment is shown as a reason. The origin is `ORIGIN_LATITUDE` /
+`ORIGIN_LONGITUDE` in `.env`, and a watch can also filter by `--max-distance-km`. Listings that
 cannot be judged (no price, a placeholder price, an unknown model or year, not a
 vehicle) are reported with a status, never a made-up number, and a ratio far
 below market is flagged to verify rather than trusted.
@@ -287,9 +290,9 @@ original.
 - [ ] Phase 2 remaining: validate the Standvirtual form against the live site,
   broaden the seed, and improve year extraction to lift coverage
 - [x] Phase 3a: watchlist with new-match and price-drop alerts to Telegram, a
-  `poll` command for Windows Task Scheduler
-- [ ] Phase 3 remaining: distance-to-Faro weighting in the deal meter,
-  due-diligence cards, duplicate and stock-photo detection
+  `poll` command for Windows Task Scheduler, distance-to-Faro weighting in the
+  deal meter and as a watch filter
+- [ ] Phase 3 remaining: due-diligence cards, duplicate and stock-photo detection
 
 ## Author
 

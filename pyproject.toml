@@ -109,6 +109,7 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = [
-  "browser: needs a real Playwright browser (skipped in CI)",
+  "browser: needs a real Playwright browser (set AUTOSIEVE_RUN_BROWSER=1 to run)",
+  "ocr: needs EasyOCR and its model download (set AUTOSIEVE_RUN_OCR=1 to run)",
 ]
 filterwarnings = ["error::DeprecationWarning:autosieve.*"]

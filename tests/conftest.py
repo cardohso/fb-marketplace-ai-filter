@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+# Marked tests that need heavy or external resources run only when opted in.
+_GATED_MARKERS = {"browser": "AUTOSIEVE_RUN_BROWSER", "ocr": "AUTOSIEVE_RUN_OCR"}
+
+
+def pytest_collection_modifyitems(items: Iterable[pytest.Item]) -> None:
+    for item in items:
+        for marker, env in _GATED_MARKERS.items():
+            if marker in item.keywords and not os.environ.get(env):
+                item.add_marker(pytest.mark.skip(reason=f"set {env}=1 to run {marker} tests"))
+
 
 _ENV_KEYS = (
     "NUM_VEHICLES",

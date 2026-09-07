@@ -32,7 +32,9 @@ Fill the JSON schema you were given:
 - kms: the odometer reading, only if the text states it as mileage. Never infer
   it from a year or price. Ignore speeds such as "180 km/h".
 - vehicle: make, model, year, fuel, gearbox and engine from the title and text.
-  Use the exact enum values. null when not stated.
+  Use the exact enum values. null when not stated. The year is the model or
+  registration year (four digits). Never take it from engine displacement
+  (2000cdti, 1.9), power (110cv), or price; if only those appear, year is null.
 - maintenance.timing_belt_done: true ONLY if the text explicitly says the timing
   belt (correia de distribuição / correia dentada / cambelt) was replaced or is
   new. Otherwise null. Never infer it from the car's age, price, mileage or a

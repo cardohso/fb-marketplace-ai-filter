@@ -80,3 +80,20 @@ def test_blank_page_is_incomplete_not_unavailable() -> None:
     listing = parse_listing_html("<html><body></body></html>", url=URL)
     assert listing.title is None
     assert not listing.is_complete
+
+
+def test_year_read_from_description() -> None:
+    from autosieve.scraper.page_parser import _year
+
+    assert _year("Renault Clio", (), "Vendo Clio de 2015, impecável") == 2015
+    assert _year("Audi A3 1.9 TDI", (), "Nacional, ano 2009") == 2009
+
+
+def test_year_ignores_engine_and_price_numbers() -> None:
+    from autosieve.scraper.page_parser import _year
+
+    # 2000 here is displacement, not a year; and 1998 is a price.
+    assert _year("Opel Vivaro 2000 cc", (), "excelente estado") is None
+    assert _year("Carrinha", (), "preço 1998 €, motor forte") is None
+    # A real year alongside an engine size is still found.
+    assert _year("Golf 1.9 TDI de 2006", (), "") == 2006

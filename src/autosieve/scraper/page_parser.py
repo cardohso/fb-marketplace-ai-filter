@@ -34,6 +34,9 @@ MAX_ATTRIBUTE_VALUE_LEN = 80
 PROSE_MIN_LEN = 60
 MAX_IMAGES = 30
 _YEAR = re.compile(r"\b(19[5-9]\d|20\d\d)\b")
+# A year is never immediately followed by an engine, power, distance or price
+# unit; "2000 cc" and "1998 €" are not model years.
+_UNIT_AFTER = re.compile(r"^\s*(€|eur|cc|cm3|cv|hp|kw|kms?)", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,13 +269,19 @@ def _gearbox_from_details(details: tuple[str, ...]) -> str | None:
     return None
 
 
-def _year(title: str | None, details: tuple[str, ...]) -> int | None:
+def _year(title: str | None, details: tuple[str, ...], description: str | None) -> int | None:
+    """First plausible model year from the title, details, then description.
+
+    A four-digit number followed by an engine/power/price unit (2000 cc, 1998
+    €) is not a year, so those are skipped.
+    """
     upper = max_plausible_year()
-    for text in (title or "", *details):
+    for text in (title or "", *details, description or ""):
         for match in _YEAR.finditer(text):
             year = int(match.group(1))
-            if year <= upper:
-                return year
+            if year > upper or _UNIT_AFTER.match(text[match.end() :]):
+                continue
+            return year
     return None
 
 
@@ -344,7 +353,7 @@ def parse_listing_html(
         kms=_kms_from_details(details),
         fuel=_fuel_from_details(details),
         gearbox=_gearbox_from_details(details),
-        year=_year(title, details),
+        year=_year(title, details, description),
         image_urls=_images(soup),
         city=city,
         location=location,

@@ -179,7 +179,7 @@ def test_v1_database_is_migrated_in_place(tmp_path: Path) -> None:
         refreshed = store.get_listing("1234567890")
         assert refreshed is not None and refreshed.location == "Odivelas, Lisboa"
     version = sqlite3.connect(db).execute("SELECT version FROM schema_version").fetchone()[0]
-    assert version == 3
+    assert version == 4
 
 
 def test_newer_database_is_refused(tmp_path: Path) -> None:
@@ -254,4 +254,4 @@ def test_v2_database_migrates_to_v3(tmp_path: Path) -> None:
         )
         assert store.get_cached_benchmark(key, 2016, ttl_days=30)[0]
     version = sqlite3.connect(db).execute("SELECT version FROM schema_version").fetchone()[0]
-    assert version == 3
+    assert version == 4

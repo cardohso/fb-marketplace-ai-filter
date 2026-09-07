@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -22,7 +23,7 @@ from autosieve.benchmark.models import Benchmark
 from autosieve.identity import VehicleKey
 from autosieve.models import Analysis, AnalysisRecord, Listing, utcnow
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _BENCHMARK_CACHE_DDL = """
 CREATE TABLE IF NOT EXISTS benchmark_cache (
@@ -36,10 +37,22 @@ CREATE TABLE IF NOT EXISTS benchmark_cache (
 )
 """
 
+_WATCH_STATE_DDL = """
+CREATE TABLE IF NOT EXISTS watch_state (
+    watch_name       TEXT NOT NULL,
+    listing_id       TEXT NOT NULL,
+    last_price       INTEGER,
+    first_matched_at TEXT NOT NULL,
+    last_alerted_at  TEXT,
+    PRIMARY KEY (watch_name, listing_id)
+)
+"""
+
 # Statements that take a database from version N to N + 1.
 _MIGRATIONS: dict[int, tuple[str, ...]] = {
     1: ("ALTER TABLE listings ADD COLUMN location TEXT",),
     2: (_BENCHMARK_CACHE_DDL,),
+    3: (_WATCH_STATE_DDL,),
 }
 
 _SCHEMA = (
@@ -88,6 +101,8 @@ CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
 """
     + _BENCHMARK_CACHE_DDL
     + ";\n"
+    + _WATCH_STATE_DDL
+    + ";\n"
 )
 
 
@@ -95,6 +110,14 @@ class UpsertOutcome(StrEnum):
     NEW = "new"
     UPDATED = "updated"
     UNCHANGED = "unchanged"
+
+
+@dataclass(frozen=True, slots=True)
+class WatchState:
+    """What a watch last knew about one listing."""
+
+    last_price: int | None
+    last_alerted_at: datetime | None
 
 
 def _iso(value: datetime) -> str:
@@ -367,6 +390,47 @@ class Store:
                     benchmark.model_dump_json() if benchmark else None,
                     _iso(utcnow()),
                 ),
+            )
+
+    # ── watch state ──────────────────────────────────────────────────────────
+
+    def get_watch_state(self, watch_name: str, listing_id: str) -> WatchState | None:
+        row = self._conn.execute(
+            "SELECT last_price, last_alerted_at FROM watch_state "
+            "WHERE watch_name = ? AND listing_id = ?",
+            (watch_name, listing_id),
+        ).fetchone()
+        if row is None:
+            return None
+        alerted = row["last_alerted_at"]
+        return WatchState(
+            last_price=row["last_price"],
+            last_alerted_at=datetime.fromisoformat(alerted) if alerted else None,
+        )
+
+    def upsert_watch_state(
+        self, watch_name: str, listing_id: str, *, last_price: int | None, alerted: bool
+    ) -> None:
+        now = _iso(utcnow())
+        with self._conn:
+            existing = self._conn.execute(
+                "SELECT last_alerted_at FROM watch_state WHERE watch_name = ? AND listing_id = ?",
+                (watch_name, listing_id),
+            ).fetchone()
+            alerted_at = now if alerted else (existing["last_alerted_at"] if existing else None)
+            self._conn.execute(
+                "INSERT INTO watch_state "
+                "(watch_name, listing_id, last_price, first_matched_at, last_alerted_at) "
+                "VALUES (:w, :l, :p, :now, :alerted) "
+                "ON CONFLICT(watch_name, listing_id) DO UPDATE SET "
+                "last_price = :p, last_alerted_at = :alerted",
+                {
+                    "w": watch_name,
+                    "l": listing_id,
+                    "p": last_price,
+                    "now": now,
+                    "alerted": alerted_at,
+                },
             )
 
     def counts(self) -> dict[str, int]:

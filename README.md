@@ -84,7 +84,14 @@ uv run autosieve enrich                   # database -> Ollama -> database
 uv run autosieve report --report-out deals.html   # rank by deal score
 uv run autosieve export --out cars.csv    # database -> CSV
 uv run autosieve status                   # what the database holds
+uv run autosieve duplicates               # listings sharing a photo (reposts/stock)
 ```
+
+`report` writes an HTML page where each deal carries a "Before you buy" checklist
+of seller questions and rough costs, built from what the analysis did and did not
+confirm. `duplicates` hashes listing photos (needs the `[ocr]` extra) and groups
+listings that share a picture — a hidden dealer reposting one car, or a stock
+photo reused across ads.
 
 `login` opens a browser for you to sign into Facebook by hand and saves the
 session, so gated seller descriptions load on later scrapes. Your credentials go
@@ -292,7 +299,11 @@ original.
 - [x] Phase 3a: watchlist with new-match and price-drop alerts to Telegram, a
   `poll` command for Windows Task Scheduler, distance-to-Faro weighting in the
   deal meter and as a watch filter
-- [ ] Phase 3 remaining: due-diligence cards, duplicate and stock-photo detection
+- [x] Phase 3b: due-diligence checklist per deal in the report, duplicate and
+  stock-photo detection (`autosieve duplicates`), and year read from the
+  description
+- [ ] Later: validate the live Standvirtual form, a generation-to-year map for
+  cars that state only a chassis code (w210, e46)
 
 ## Author
 

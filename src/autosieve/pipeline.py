@@ -88,6 +88,7 @@ class ScrapeSummary:
     failed: int = 0
     duration_s: float = 0.0
     failures: list[tuple[str, str]] = field(default_factory=list)
+    new_ids: list[str] = field(default_factory=list)
 
     @property
     def stored(self) -> int:
@@ -179,6 +180,7 @@ def scrape(
             outcome = store.upsert_listing(listing)
             if outcome is UpsertOutcome.NEW:
                 summary.new += 1
+                summary.new_ids.append(listing.id)
             elif outcome is UpsertOutcome.UPDATED:
                 summary.updated += 1
             else:

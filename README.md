@@ -22,7 +22,8 @@ priced below their market benchmark, from private sellers, with low mileage.
 | Deal score and ranked report | Working | Explainable score, terminal table and HTML page |
 | Market benchmark | Seed + live | Curated seed, or live Standvirtual Avaliador valuations (cached) |
 | Saved Facebook session | Working | Log in once so gated seller descriptions load |
-| Alerts and watchlist | Not started | Phase 3 |
+| Watchlist and alerts | Working | Saved searches, new-match and price-drop alerts to Telegram |
+| Distance-to-Faro weighting | Not started | Phase 3 |
 
 The HTML parser is tested against reduced copies of real listing pages captured
 in September 2026 (`tests/fixtures/live_*.html`) plus synthetic fixtures for
@@ -96,6 +97,51 @@ Use live Standvirtual valuations instead of the seed:
 uv run autosieve report --benchmark-source standvirtual --report-out deals.html
 ```
 
+## Watchlist and alerts
+
+Define saved searches ("watches") for the cars you care about, then let
+AutoSieve tell you when a matching listing appears or drops in price.
+
+```powershell
+uv run autosieve watch add --name clio-diesel --make Renault --model Clio `
+  --year-min 2013 --price-max 11000 --km-max 130000 --private-only
+uv run autosieve watch list
+```
+
+Watches live in `watches.json`, which you can also edit by hand. Matching is
+forgiving on missing data: an unknown mileage does not hide a car, but a named
+make and model must match, and listings the model flags as parts or accessories
+are never matched.
+
+Set up Telegram once: create a bot with [@BotFather](https://t.me/BotFather) to
+get a token, message [@userinfobot](https://t.me/userinfobot) to get your chat
+id, and put both in `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=123456:ABC-your-token
+TELEGRAM_CHAT_ID=987654321
+```
+
+Then poll: it scrapes, enriches, and sends an alert for each new match and each
+material price drop (at least 200 euros or 3 percent). Each alert fires once.
+
+```powershell
+uv run autosieve poll --dry-run   # print alerts, send nothing, change no state
+uv run autosieve poll             # scrape, enrich, and send alerts
+```
+
+Run it on a schedule with **Windows Task Scheduler**: create a Basic Task, set
+the trigger to every few hours, and set the action to your Python and the poll
+command. A conservative interval keeps Facebook happy. For example, the action
+program is your venv Python and the arguments are:
+
+```
+-m autosieve poll
+```
+
+with the project folder as "Start in". Adding an argument like `--city faro`
+scopes the run to a region.
+
 Useful flags:
 
 | Flag | Command | Effect |
@@ -113,6 +159,7 @@ Useful flags:
 | `--benchmark-ttl-days N` | report, run | How long a cached live valuation stays fresh (default 30) |
 | `--report-out FILE` | report, run | Write the ranked deals to an HTML page |
 | `--top N` | report, run | Rows to show in the terminal (default 20) |
+| `--dry-run` | poll | Print alerts instead of sending, and change no state |
 | `--db FILE` | all | Use a different SQLite file |
 | `-v` / `-q` | all | Debug logging / warnings only |
 
@@ -239,8 +286,10 @@ original.
   Facebook session
 - [ ] Phase 2 remaining: validate the Standvirtual form against the live site,
   broaden the seed, and improve year extraction to lift coverage
-- [ ] Phase 3: watchlist, price-drop alerts, due-diligence cards, duplicate and
-  stock-photo detection
+- [x] Phase 3a: watchlist with new-match and price-drop alerts to Telegram, a
+  `poll` command for Windows Task Scheduler
+- [ ] Phase 3 remaining: distance-to-Faro weighting in the deal meter,
+  due-diligence cards, duplicate and stock-photo detection
 
 ## Author
 

@@ -22,8 +22,11 @@ from autosieve.logging_setup import setup_logging
 from autosieve.ocr import ImagePolicy, OdometerReader, download_image
 from autosieve.pipeline import EnrichSummary, ScrapeSummary, enrich, scrape
 from autosieve.report import build_report, render_html, render_terminal
+from autosieve.scoring import score_listing
 from autosieve.scraper import ScrapeError
 from autosieve.storage import Store, export_csv
+from autosieve.watch import Watch, load_watches, save_watches, watches_path
+from autosieve.watch.events import detect_events
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +78,21 @@ def _add_export_options(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="keep listings the model classified as parts or accessories",
     )
+
+
+def _add_watch_add_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--name", required=True, help="unique label for the watch")
+    parser.add_argument("--make")
+    parser.add_argument("--model")
+    parser.add_argument("--year-min", type=int)
+    parser.add_argument("--year-max", type=int)
+    parser.add_argument("--price-min", type=int)
+    parser.add_argument("--price-max", type=int)
+    parser.add_argument("--km-max", type=int)
+    parser.add_argument("--fuel", choices=("gasolina", "gasoleo", "hibrido", "eletrico", "gpl"))
+    parser.add_argument("--gearbox", choices=("manual", "automatica"))
+    parser.add_argument("--private-only", action="store_true", help="exclude dealers")
+    parser.add_argument("--min-score", type=float, help="only alert at or above this deal score")
 
 
 def _add_report_options(parser: argparse.ArgumentParser) -> None:
@@ -143,6 +161,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_report = sub.add_parser("report", help="rank stored listings by deal score")
     _add_report_options(p_report)
     p_report.set_defaults(func=cmd_report)
+
+    p_poll = sub.add_parser("poll", help="scrape, enrich and alert on watch matches")
+    _add_scrape_options(p_poll)
+    _add_enrich_options(p_poll)
+    _add_report_options(p_poll)
+    p_poll.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print alerts instead of sending, and change no state",
+    )
+    p_poll.set_defaults(func=cmd_poll)
+
+    p_watch = sub.add_parser("watch", help="manage watches (saved searches)")
+    watch_sub = p_watch.add_subparsers(dest="watch_command", required=True, metavar="ACTION")
+    p_watch_add = watch_sub.add_parser("add", help="add a watch")
+    _add_watch_add_options(p_watch_add)
+    p_watch_add.set_defaults(func=cmd_watch_add)
+    p_watch_list = watch_sub.add_parser("list", help="show watches")
+    p_watch_list.set_defaults(func=cmd_watch_list)
+    p_watch_remove = watch_sub.add_parser("remove", help="remove a watch by name")
+    p_watch_remove.add_argument("name", help="watch name to remove")
+    p_watch_remove.set_defaults(func=cmd_watch_remove)
 
     p_login = sub.add_parser("login", help="sign into Facebook once and save the session")
     p_login.set_defaults(func=cmd_login)
@@ -304,6 +344,104 @@ def cmd_export(args: argparse.Namespace, settings: Settings) -> int:
 def cmd_report(args: argparse.Namespace, settings: Settings) -> int:
     with Store(settings.db_path) as store:
         _run_report(args, settings, store)
+    return EXIT_OK
+
+
+def _notifier(settings: Settings, *, dry_run: bool) -> object:
+    from autosieve.notify import ConsoleNotifier, TelegramNotifier
+
+    if dry_run or not settings.telegram_configured:
+        if not dry_run:
+            log.warning("Telegram is not configured; printing alerts instead of sending")
+        return ConsoleNotifier()
+    return TelegramNotifier(token=settings.telegram_bot_token, chat_id=settings.telegram_chat_id)
+
+
+def cmd_poll(args: argparse.Namespace, settings: Settings) -> int:
+    from autosieve.notify import NotifyError, format_event
+
+    watches = load_watches(settings.watches_path)
+    if not watches:
+        print(f"No watches defined. Add one with `autosieve watch add` ({settings.watches_path}).")
+        return EXIT_OK
+
+    with Store(settings.db_path) as store:
+        scrape_summary = scrape(settings, store)
+        _print_scrape_summary(scrape_summary)
+        enrich_summary = _run_enrich(args, settings, store)
+        _print_enrich_summary(enrich_summary)
+
+        provider = _seed_provider(args)
+
+        def score_of(listing: object, analysis: object) -> object:
+            return score_listing(listing, analysis, provider)  # type: ignore[arg-type]
+
+        events = detect_events(
+            store,
+            watches,
+            new_ids=set(scrape_summary.new_ids),
+            score_of=score_of,  # type: ignore[arg-type]
+            persist=not args.dry_run,
+        )
+
+    print(f"\nAlerts: {len(events)} event(s) from {len(watches)} watch(es)")
+    notifier = _notifier(settings, dry_run=args.dry_run)
+    sent = 0
+    for event in events:
+        try:
+            notifier.send(format_event(event))  # type: ignore[attr-defined]
+            sent += 1
+        except NotifyError as exc:
+            log.error("failed to send alert for %s: %s", event.listing.id, exc)
+    if events and not args.dry_run:
+        print(f"Sent {sent}/{len(events)} alert(s)")
+    return EXIT_OK
+
+
+def cmd_watch_add(args: argparse.Namespace, settings: Settings) -> int:
+    watches = load_watches(settings.watches_path)
+    if any(w.name == args.name for w in watches):
+        print(f"A watch named {args.name!r} already exists.", file=sys.stderr)
+        return EXIT_FAILURE
+    watch = Watch(
+        name=args.name,
+        make=args.make,
+        model=args.model,
+        year_min=args.year_min,
+        year_max=args.year_max,
+        price_min=args.price_min,
+        price_max=args.price_max,
+        km_max=args.km_max,
+        fuel=args.fuel,
+        gearbox=args.gearbox,
+        private_only=args.private_only,
+        min_score=args.min_score,
+    )
+    watches.append(watch)
+    path = save_watches(watches, settings.watches_path)
+    print(f"Added watch {watch.name!r} ({watch.describe()}) -> {path}")
+    return EXIT_OK
+
+
+def cmd_watch_list(_args: argparse.Namespace, settings: Settings) -> int:
+    watches = load_watches(settings.watches_path)
+    if not watches:
+        print(f"No watches in {watches_path(settings.watches_path)}.")
+        return EXIT_OK
+    for watch in watches:
+        flag = "" if watch.enabled else " (disabled)"
+        print(f"  {watch.name}{flag}: {watch.describe()}")
+    return EXIT_OK
+
+
+def cmd_watch_remove(args: argparse.Namespace, settings: Settings) -> int:
+    watches = load_watches(settings.watches_path)
+    kept = [w for w in watches if w.name != args.name]
+    if len(kept) == len(watches):
+        print(f"No watch named {args.name!r}.", file=sys.stderr)
+        return EXIT_FAILURE
+    save_watches(kept, settings.watches_path)
+    print(f"Removed watch {args.name!r}")
     return EXIT_OK
 
 

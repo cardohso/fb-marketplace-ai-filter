@@ -48,6 +48,11 @@ def watch_matches(
     if not watch.enabled:
         return MatchResult(False, "watch disabled")
 
+    # A listing the model classified as parts or an accessory is never a match,
+    # even for a broad watch that names no make or model.
+    if analysis is not None and not analysis.is_vehicle:
+        return MatchResult(False, "not a vehicle")
+
     identity = _identity_matches(watch, listing, analysis)
     if not identity.matched:
         return identity

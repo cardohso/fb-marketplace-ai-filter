@@ -138,3 +138,10 @@ def test_load_rejects_duplicate_names(tmp_path: Path) -> None:
     save_watches([clio_watch(), Watch(name="clio", model="Golf")], path)
     with pytest.raises(ValueError, match="duplicate"):
         load_watches(path)
+
+
+def test_non_vehicle_never_matches() -> None:
+    # A listing classified as parts/accessory must not match, even a broad watch.
+    parts = Analysis(is_vehicle=False, vehicle=VehicleIdentity(make="Renault", model="Clio"))
+    assert not watch_matches(clio_watch(), listing(), parts).matched
+    assert not watch_matches(Watch(name="any"), listing(), parts).matched

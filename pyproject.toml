@@ -86,6 +86,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "src/autosieve/cli.py" = ["T20"]   # the CLI is the one place that prints
 "scripts/**" = ["T20"]             # developer tools print by design
+"src/autosieve/notify/base.py" = ["T20"]  # the console notifier prints by design
 "tests/**" = ["ARG", "PLR2004"]
 
 # ── mypy ─────────────────────────────────────────────────────────────────────

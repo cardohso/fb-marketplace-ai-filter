@@ -93,6 +93,15 @@ class Settings(BaseSettings):
     # ── Storage ──────────────────────────────────────────────────────────────
     db_path: Path = Path("autosieve.db")
     export_dir: Path = Path()
+    watches_path: Path = Path("watches.json")
+
+    # ── Notifications ────────────────────────────────────────────────────────
+    telegram_bot_token: str = Field(default="", description="Bot token from @BotFather")
+    telegram_chat_id: str = Field(default="", description="Chat id to send alerts to")
+
+    @property
+    def telegram_configured(self) -> bool:
+        return bool(self.telegram_bot_token and self.telegram_chat_id)
 
     @field_validator("ollama_host", mode="before")
     @classmethod

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from autosieve.benchmark import BenchmarkProvider
+from autosieve.duediligence import DueDiligence, build_due_diligence
 from autosieve.geo import distance_from
 from autosieve.identity import resolve_identity
 from autosieve.models import Analysis, Listing
@@ -22,6 +23,7 @@ class ReportRow:
     model: str | None
     year: int | None
     notes: str | None
+    due: DueDiligence
 
     @property
     def is_scored(self) -> bool:
@@ -58,6 +60,7 @@ def _row(listing: Listing, analysis: Analysis | None, score: DealScore) -> Repor
         model=resolved.model,
         year=resolved.year,
         notes=analysis.notes if analysis and analysis.notes else None,
+        due=build_due_diligence(listing, analysis, kms=score.kms),
     )
 
 
@@ -168,6 +171,18 @@ def render_html(report: Report) -> str:
         reasons = html.escape("; ".join(s.reasons)) if s.reasons else ""
         notes = html.escape(row.notes or "")
         dealer = '<span class="tag">dealer</span>' if s.is_dealer else ""
+        checklist = "".join(
+            f"<li>{html.escape(item.question)}"
+            + (f" <em>{html.escape(item.cost_hint)}</em>" if item.cost_hint else "")
+            + "</li>"
+            for item in row.due.items
+        )
+        due_block = (
+            f"<details class='due'><summary>Before you buy ({len(row.due.items)})</summary>"
+            f"<ul>{checklist}</ul></details>"
+            if checklist
+            else ""
+        )
         body.append(
             f"<tr class='{_score_class(s.score)}'>"
             f"<td class='rank'>{rank}</td>"
@@ -179,7 +194,7 @@ def render_html(report: Report) -> str:
             f"<td><a href='{url}' target='_blank' rel='noopener'>{vehicle}</a>{dealer}"
             f"<div class='title'>{title}</div>"
             f"<div class='reasons'>{reasons}</div>"
-            f"<div class='notes'>{notes}</div></td>"
+            f"<div class='notes'>{notes}</div>{due_block}</td>"
             "</tr>"
         )
 
@@ -225,6 +240,11 @@ _HTML_TEMPLATE = """<!doctype html>
   .title {{ font-size: .85rem; color: #6b7280; }}
   .reasons {{ font-size: .78rem; color: #8a8f98; margin-top: .15rem; }}
   .notes {{ font-size: .8rem; margin-top: .2rem; }}
+  .due {{ font-size: .8rem; margin-top: .35rem; }}
+  .due summary {{ cursor: pointer; color: #6b7280; }}
+  .due ul {{ margin: .3rem 0 0; padding-left: 1.1rem; }}
+  .due li {{ margin: .15rem 0; }}
+  .due em {{ color: #b7791f; font-style: normal; }}
   .tag {{ display:inline-block; margin-left:.4rem; padding:0 .4rem; border-radius:.6rem;
           font-size:.7rem; background:#b91c1c; color:#fff; vertical-align:middle; }}
   a {{ color: inherit; font-weight: 600; text-decoration: none; }}

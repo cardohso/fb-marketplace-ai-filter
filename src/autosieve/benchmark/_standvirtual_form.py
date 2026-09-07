@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from autosieve.benchmark.standvirtual import AVALIADOR_URL, Valuation, parse_valuation
+from autosieve.parsing.normalize import fold
 
 log = logging.getLogger(__name__)
 
@@ -52,15 +53,17 @@ def _fill_dropdown(page: Any, label_text: str, value: str | None, timeout: int =
         inp.fill(value)
         page.wait_for_timeout(STEP_WAIT_MS)
 
+        # Compare accent- and case-folded, so "Serie 3" matches "Série 3".
+        wanted = fold(value)
         visible = [o for o in page.locator('div[role="option"]').all() if o.is_visible()]
         for option in visible:  # exact match first
-            if option.inner_text().strip().lower() == value.lower():
+            if fold(option.inner_text()) == wanted:
                 option.click()
                 page.wait_for_timeout(SHORT_WAIT_MS)
                 return True
         for option in visible:  # then fuzzy
-            text = option.inner_text().strip().lower()
-            if value.lower() in text or text in value.lower():
+            text = fold(option.inner_text())
+            if wanted in text or text in wanted:
                 option.click()
                 page.wait_for_timeout(SHORT_WAIT_MS)
                 return True
